@@ -2,4 +2,4 @@
 
 source setup-env.sh
 
-python3 run.sh
+python3 run.py
