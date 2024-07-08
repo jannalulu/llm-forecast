@@ -19,26 +19,22 @@ In order to run this notebook as is, you'll need to enter a few API keys (use th
 """
 
 # Make sure you have set these in the sidebar to the left, by pressing the key icon.
-from google.colab import userdata
-METACULUS_TOKEN = userdata.get('METACULUS_TOKEN')
-OPENAI_API_KEY = userdata.get('OPENAI_API_KEY')
-ASKNEWS_CLIENT_ID = userdata.get('ASKNEWS_CLIENT_ID')
-ASKNEWS_SECRET = userdata.get('ASKNEWS_SECRET')
+def read_secrets(path):
+    secrets = {}
+    with open(path) as f:
+        for l in f:
+            kv = l.strip().split('=', 1)
+            k = kv[0]
+            v = kv[1]
+            secrets[k] = v
+    return secrets
 
-"""### ChatGPT Prompt
+secrets = read_secrets("secrets.txt")
 
-You can change the prompt below to experiment. Key parameters that you can include in your prompt are:
-
-*   `{title}` The question itself
-*   `{news_articles}` A set of news articles related to the question obtained from AskNews
-*   `{background}` The background section of the Metaculus question. This comes from the `description` field on the question
-*   `{fine_print}` The fine print section of the question
-*   `{today}` Today's date. Remember that your bot doesn't know the date unless you tell it explicitly!
-
-
-**IMPORTANT**: As you experiment with changing the prompt, be aware that the last number output by GPT will be used as the forecast probability. The last line in the template specifies that.
-
-"""
+METACULUS_TOKEN = secrets['METACULUS_TOKEN']
+OPENAI_API_KEY = secrets['OPENAI_API_KEY']
+ASKNEWS_CLIENT_ID = secrets['ASKNEWS_CLIENT_ID']
+ASKNEWS_SECRET = secrets['ASKNEWS_SECRET']
 
 PROMPT_TEMPLATE = """
 You are a superforecaster who has a strong track record of accurate forecasting. You evaluate past data and trends carefully for potential clues to future events, while recognising that the past is an imperfect guide to the future so you will need to put probabilities on possible future outcomes (ranging from 0 to 100%). Your specific goal is to maximize the accuracy of these probability judgments by minimising the Brier scores that your probability judgments receive once future outcomes are known.
@@ -67,7 +63,7 @@ The Resolution Criteria for the question is:
 {resolution_criteria}
 
 You found the following news articles related to the question:
-{news_articles}
+{formatted_articles}
 
 background:
 {background}
@@ -85,8 +81,6 @@ You write your rationale and give your final answer as: "Probability: ZZ%", betw
 This section sets up some simple helper code you can use to get data about forecasting questions and to submit a prediction
 """
 
-!pip install -qU openai
-!pip install asknews
 import datetime
 import json
 import os
@@ -172,7 +166,7 @@ def list_questions(tournament_id=WARMUP_TOURNAMENT_ID, offset=0, count=10):
     data = json.loads(response.content)
     return data
 
-def get_asknews_context(query):
+def get_formatted_asknews_context(query):
   """
   Use the AskNews `news` endpoint to get news context for your query.
   The full API reference can be found here: https://docs.asknews.app/en/reference#get-/v1/news/search
@@ -215,7 +209,7 @@ def get_asknews_context(query):
   llm_context = hot_response.as_string + historical_response.as_string
   formatted_articles = format_asknews_context(
       hot_response.as_dicts, historical_response.as_dicts)
-  return llm_context, formatted_articles
+  return formatted_articles
 
 
 def format_asknews_context(hot_articles, historical_articles):
@@ -260,9 +254,7 @@ def get_gpt_prediction(question_details):
     background = question_details["description"]
     fine_print = question_details["fine_print"]
 
-    news_articles = ""
-
-    news_articles, formatted_articles = get_asknews_context(title)
+    formatted_articles = get_formatted_asknews_context(title)
 
     chat_completion = client.chat.completions.create(
         model="gpt-4o",
@@ -272,6 +264,7 @@ def get_gpt_prediction(question_details):
             "content": PROMPT_TEMPLATE.format(
                 title=title,
                 formatted_articles=formatted_articles,
+                resolution_criteria=resolution_criteria,
                 today=today,
                 background=background,
                 fine_print=fine_print,
@@ -303,9 +296,9 @@ questions = list_questions() #find open questions
 
 open_questions_ids = []
 for question in questions["results"]:
-  if question["active_state"] == "OPEN":
-    print(f"ID: {question['id']}\nQ: {question['title']}\nCloses: {question['close_time']}")
-    open_questions_ids.append(question["id"])
+    if question["active_state"] == "OPEN":
+        print(f"ID: {question['id']}\nQ: {question['title']}\nCloses: {question['close_time']}")
+        open_questions_ids.append(question["id"])
 
 SUBMIT_PREDICTION = False
 question_id = 25852
