@@ -300,16 +300,18 @@ for question in questions["results"]:
         print(f"ID: {question['id']}\nQ: {question['title']}\nCloses: {question['close_time']}")
         open_questions_ids.append(question["id"])
 
+print("Open question IDs:", open_questions_ids, "\n\n")
+
 SUBMIT_PREDICTION = False
-question_id = 25852
-question_details = get_question_details(question_id)
-# print(question_details)
 
-prediction, summary_report, gpt_result = get_gpt_prediction(question_details)
-print("GPT predicted: ", prediction, summary_report, gpt_result)
+for question_id in open_questions_ids:
+    print(f"Question id: {question_id}\n\n")
+    question_details = get_question_details(question_id)
+    print("Question details:\n\n", question_details)
 
-
-if prediction is not None and SUBMIT_PREDICTION:
-    post_question_prediction(question_id, prediction)
-    comment = "summary report\n\n" + summary_report + "\n\n#########\n\n" + "GPT\n\n" + gpt_result
-    post_question_comment(question_id, comment)
+    prediction, summary_report, gpt_result = get_gpt_prediction(question_details)
+    if prediction is not None and SUBMIT_PREDICTION:
+        post_question_prediction(question_id, prediction)
+        comment = "Summary report\n\n" + summary_report + "\n\n#########\n\n" + "GPT\n\n" + gpt_result
+        print(f"Posting comment: {comment}\n\n")
+        post_question_comment(question_id, comment)
