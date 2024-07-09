@@ -285,7 +285,7 @@ for question in questions["results"]:
 
 print("Open question IDs:", open_questions_ids, "\n\n")
 
-SUBMIT_PREDICTION = False
+SUBMIT_PREDICTION = True
 
 for question_id in open_questions_ids:
     print(f"Question id: {question_id}\n\n")
