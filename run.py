@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 
+import sys
+
+args = sys.argv
+if len(args) > 1 and args[1] == "dryrun":
+    print("dry run, doing nothing")
+    exit(0)
+
 ## AI Forecasting AnnaBot
 
 def read_secrets(path):
