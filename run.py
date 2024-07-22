@@ -44,7 +44,8 @@ Work through the following step-by-step, and make sure that you understand the q
 7. Strive to distinguish as many degrees of doubt as the problem permits but no more.
 8. Strike the right balance between under- and overconfidence, between prudence and decisiveness.
 9. Look for the errors behind your mistakes but beware of rearview-mirror hindsight biases.
-Once you have written your reasons, ensure that they directly inform your forecast. Then, you will provide me with your forecast that is a range between two numbers, each between between 0 and 100 (up to 2 decimal places) that is your best range of prediction of the event. Output your prediction as “My Prediction: Between XX.XX% and YY.YY%, but ZZ.ZZ% being the most likely. Probability: ZZ%."
+Once you have written your reasons, ensure that they directly inform your forecast. Then, you will provide me with your forecast that is a range between two numbers, each between between 0 and 100 (up to 2 decimal places) that is your best range of prediction of the event. 
+Output your prediction as “My Prediction: Between XX.XX% and YY.YY%, but ZZ.ZZ% being the most likely. Probability: ZZ%."
 
 Your question is:
 {title}
@@ -63,7 +64,6 @@ fine print:
 
 Today is {today}.
 
-You write your rationale and give your final answer as: "Probability: ZZ%", between 0-100.
 """
 
 """## Some setup code
@@ -85,10 +85,10 @@ WARMUP_TOURNAMENT_ID = 3349
 
 def find_number_before_percent(s):
     # Use a regular expression to find all numbers followed by a '%'
-    matches = re.findall(r'(\d+)%', s)
+    matches = re.findall(r'(\d+(?:\.\d{1,2})?)%', s)
     if matches:
         # Return the last number found before a '%'
-        return int(matches[-1])
+        return float(matches[-1])
     else:
         # Return None if no number found
         return None
@@ -271,7 +271,7 @@ def get_gpt_prediction(question_details):
     # Extract the number if a match is found
     probability = None
     if probability_match:
-        probability = int(probability_match) # int(match.group(1))
+        probability = float(probability_match) # int(match.group(1))
         print(f"The extracted probability is: {probability}%")
         probability = min(max(probability, 1), 99) # To prevent extreme forecasts
 
