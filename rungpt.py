@@ -22,10 +22,9 @@ def read_secrets(path):
 secrets = read_secrets("secrets.txt")
 
 METACULUS_TOKEN = secrets['METACULUS_TOKEN']
-#OPENAI_API_KEY = secrets['OPENAI_API_KEY']
+OPENAI_API_KEY = secrets['OPENAI_API_KEY']
 ASKNEWS_CLIENT_ID = secrets['ASKNEWS_CLIENT_ID']
 ASKNEWS_SECRET = secrets['ASKNEWS_SECRET']
-ANTHROPIC_API_KEY = secrets['ANTHROPIC_API_KEY']
 
 PROMPT_TEMPLATE = """
 You are a superforecaster who has a strong track record of accurate forecasting. You evaluate past data and trends carefully for potential clues to future events, while recognising that the past is an imperfect guide to the future so you will need to put probabilities on possible future outcomes (ranging from 0 to 100%). Your specific goal is to maximize the accuracy of these probability judgments by minimising the Brier scores that your probability judgments receive once future outcomes are known.
@@ -46,7 +45,7 @@ Work through the following step-by-step, and make sure that you understand the q
 8. Strike the right balance between under- and overconfidence, between prudence and decisiveness.
 9. Look for the errors behind your mistakes but beware of rearview-mirror hindsight biases.
 Once you have written your reasons, ensure that they directly inform your forecast. Then, you will provide me with your forecast that is a range between two numbers, each between between 0 and 100 (up to 2 decimal places) that is your best range of prediction of the event. 
-Output your prediction as “My Prediction: Between XX.XX% and YY.YY%, but ZZ.ZZ% being the most likely. Probability: ZZ%." Please not add anything after. 
+Output your prediction as “My Prediction: Between XX.XX% and YY.YY%, but ZZ.ZZ% being the most likely. Probability: ZZ%."
 
 Your question is:
 {title}
@@ -78,8 +77,7 @@ import os
 import requests
 import re
 from asknews_sdk import AskNewsSDK
-from anthropic import Anthropic
-#from openai import OpenAI
+from openai import OpenAI
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api2"
@@ -237,9 +235,9 @@ def format_asknews_context(hot_articles, historical_articles):
 
   return formatted_articles
 
-def get_claude_prediction(question_details):
+def get_gpt_prediction(question_details):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = OpenAI(api_key=OPENAI_API_KEY)
 
     title = question_details["title"]
     resolution_criteria = question_details["resolution_criteria"]
@@ -248,9 +246,8 @@ def get_claude_prediction(question_details):
 
     formatted_articles = get_formatted_asknews_context(title)
 
-    response = client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=4096,
+    chat_completion = client.chat.completions.create(
+        model="gpt-4o",
         messages=[
         {
             "role": "user",
@@ -266,10 +263,10 @@ def get_claude_prediction(question_details):
         ],
     )
 
-    claude_text = response.content[0].text
+    gpt_text = chat_completion.choices[0].message.content
 
     # Regular expression to find the number following 'Probability: '
-    probability_match = find_number_before_percent(claude_text)
+    probability_match = find_number_before_percent(gpt_text)
 
     # Extract the number if a match is found
     probability = None
@@ -278,7 +275,7 @@ def get_claude_prediction(question_details):
         print(f"The extracted probability is: {probability}%")
         probability = min(max(probability, 1), 99) # To prevent extreme forecasts
 
-    return probability, formatted_articles, claude_text
+    return probability, formatted_articles, gpt_text
 
 """## GPT prediction and submitting a forecast
 
@@ -295,15 +292,16 @@ for question in questions["results"]:
 
 print("Open question IDs:", open_questions_ids, "\n\n")
 
-SUBMIT_PREDICTION = True
+SUBMIT_PREDICTION = False
 
 for question_id in open_questions_ids:
     print(f"Question id: {question_id}\n\n")
     question_details = get_question_details(question_id)
 
-    prediction, summary_report, claude_result = get_claude_prediction(question_details)
+    prediction, summary_report, gpt_result = get_gpt_prediction(question_details)
     if prediction is not None and SUBMIT_PREDICTION:
         post_question_prediction(question_id, prediction)
-        comment = "GPT\n\n" + claude_result
+        comment = "GPT\n\n" + gpt_result
         print(f"Posting comment: {comment}\n\n")
         post_question_comment(question_id, comment)
+        print("question_id\n", comment)
