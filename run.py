@@ -22,7 +22,7 @@ def read_secrets(path):
 secrets = read_secrets("secrets.txt")
 
 METACULUS_TOKEN = secrets['METACULUS_TOKEN']
-#OPENAI_API_KEY = secrets['OPENAI_API_KEY']
+OPENAI_API_KEY = secrets['OPENAI_API_KEY']
 ASKNEWS_CLIENT_ID = secrets['ASKNEWS_CLIENT_ID']
 ASKNEWS_SECRET = secrets['ASKNEWS_SECRET']
 ANTHROPIC_API_KEY = secrets['ANTHROPIC_API_KEY']
@@ -79,7 +79,7 @@ import requests
 import re
 from asknews_sdk import AskNewsSDK
 from anthropic import Anthropic
-#from openai import OpenAI
+from openai import OpenAI
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api2"
@@ -237,6 +237,38 @@ def format_asknews_context(hot_articles, historical_articles):
 
   return formatted_articles
 
+#GPT-4 predictions
+def get_gpt_prediction(question_details):
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    title = question_details["title"]
+    resolution_criteria = question_details["resolution_criteria"]
+    background = question_details["description"]
+    fine_print = question_details["fine_print"]
+
+    formatted_articles = get_formatted_asknews_context(title)
+
+    chat_completion = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "user",
+                "content": PROMPT_TEMPLATE.format(
+                    title=title,
+                    formatted_articles=formatted_articles,
+                    resolution_criteria=resolution_criteria,
+                    today=today,
+                    background=background,
+                    fine_print=fine_print,
+                )
+            }
+        ],
+    )
+
+    gpt_text = chat_completion.choices[0].message.content
+    return formatted_articles, gpt_text
+
 def get_claude_prediction(question_details):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -265,11 +297,12 @@ def get_claude_prediction(question_details):
         }
         ],
     )
-
     claude_text = response.content[0].text
+    return formatted_articles, claude_text
 
-    # Regular expression to find the number following 'Probability: '
-    probability_match = find_number_before_percent(claude_text)
+# Regular expression to find the number following 'Probability:
+def extract_probability(ai_text):
+    probability_match = find_number_before_percent(ai_text)
 
     # Extract the number if a match is found
     probability = None
@@ -277,13 +310,12 @@ def get_claude_prediction(question_details):
         probability = float(probability_match) # int(match.group(1))
         print(f"The extracted probability is: {probability}%")
         probability = min(max(probability, 1), 99) # To prevent extreme forecasts
+        return probability
+    else:
+        print("Unable to extract probability.")
+        return None
 
-    return probability, formatted_articles, claude_text
-
-"""## GPT prediction and submitting a forecast
-
-This is an example of how you can use the helper functions from above.
-"""
+#GPT prediction and submitting a forecast
 
 questions = list_questions() #find open questions
 
@@ -293,17 +325,29 @@ for question in questions["results"]:
         print(f"ID: {question['id']}\nQ: {question['title']}\nCloses: {question['close_time']}")
         open_questions_ids.append(question["id"])
 
-print("Open question IDs:", open_questions_ids, "\n\n")
-
 SUBMIT_PREDICTION = True
 
 for question_id in open_questions_ids:
     print(f"Question id: {question_id}\n\n")
     question_details = get_question_details(question_id)
+    print("Question details:\n\n", question_details)
 
-    prediction, summary_report, claude_result = get_claude_prediction(question_details)
-    if prediction is not None and SUBMIT_PREDICTION:
-        post_question_prediction(question_id, prediction)
-        comment = "GPT\n\n" + claude_result
-        print(f"Posting comment: {comment}\n\n")
-        post_question_comment(question_id, comment)
+    formatted_articles, gpt_result = get_gpt_prediction(question_details)
+    _, claude_result = get_claude_prediction(question_details)
+
+    gpt_probability = extract_probability(gpt_result)
+    claude_probability = extract_probability(claude_result)
+
+    if gpt_probability is not None and claude_probability is not None:
+        average_probability = (gpt_probability + claude_probability) / 2
+        print(f"GPT probability: {gpt_probability}%")
+        print(f"Claude probability: {claude_probability}%")
+        print(f"Average probability: {average_probability}%")
+
+        if SUBMIT_PREDICTION:
+            post_question_prediction(question_id, average_probability)
+            comment = (f"Run 1\n\n" + gpt_result + "\n\n#########\n\n" + "Run 2\n\n" + claude_result)
+            print(f"Posting comment: {comment}\n\n")
+            post_question_comment(question_id, comment)
+    else:
+        print("Unable to extract probability.")
