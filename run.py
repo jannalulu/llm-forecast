@@ -22,10 +22,10 @@ def read_secrets(path):
 secrets = read_secrets("secrets.txt")
 
 METACULUS_TOKEN = secrets['METACULUS_TOKEN']
-OPENAI_API_KEY = secrets['OPENAI_API_KEY']
+# OPENAI_API_KEY = secrets['OPENAI_API_KEY']
 ASKNEWS_CLIENT_ID = secrets['ASKNEWS_CLIENT_ID']
 ASKNEWS_SECRET = secrets['ASKNEWS_SECRET']
-ANTHROPIC_API_KEY = secrets['ANTHROPIC_API_KEY']
+# ANTHROPIC_API_KEY = secrets['ANTHROPIC_API_KEY']
 
 PROMPT_TEMPLATE = """
 You are a superforecaster who has a strong track record of accurate forecasting. You evaluate past data and trends carefully for potential clues to future events, while recognising that the past is an imperfect guide to the future so you will need to put probabilities on possible future outcomes (ranging from 0 to 100%). Your specific goal is to maximize the accuracy of these probability judgments by minimising the Brier scores that your probability judgments receive once future outcomes are known.
@@ -242,7 +242,7 @@ def format_asknews_context(hot_articles, historical_articles):
 #GPT-4 predictions
 def get_gpt_prediction(question_details):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    # client = OpenAI(api_key=OPENAI_API_KEY)
 
     title = question_details["title"]
     resolution_criteria = question_details["resolution_criteria"]
@@ -251,9 +251,16 @@ def get_gpt_prediction(question_details):
 
     formatted_articles = get_formatted_asknews_context(title)
 
-    chat_completion = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
+    url = "https://www.metaculus.com/proxy/openai/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "model": "gpt-4o",
+        "messages": [
             {
                 "role": "user",
                 "content": PROMPT_TEMPLATE.format(
@@ -265,15 +272,22 @@ def get_gpt_prediction(question_details):
                     fine_print=fine_print,
                 )
             }
-        ],
-    )
-
-    gpt_text = chat_completion.choices[0].message.content
-    return formatted_articles, gpt_text
+        ]
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()  # This will raise an exception for HTTP errors
+        response_data = response.json()
+        gpt_text = response_data['choices'][0]['message']['content']
+        return formatted_articles, gpt_text
+    except requests.RequestException as e:
+        print(f"Error in GPT prediction: {e}")
+        return formatted_articles, None
 
 def get_claude_prediction(question_details):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    # client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
     title = question_details["title"]
     resolution_criteria = question_details["resolution_criteria"]
@@ -282,25 +296,42 @@ def get_claude_prediction(question_details):
 
     formatted_articles = get_formatted_asknews_context(title)
 
-    response = client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=4096,
-        messages=[
-        {
-            "role": "user",
-            "content": PROMPT_TEMPLATE.format(
-                title=title,
-                formatted_articles=formatted_articles,
-                resolution_criteria=resolution_criteria,
-                today=today,
-                background=background,
-                fine_print=fine_print,
-            )
-        }
-        ],
-    )
-    claude_text = response.content[0].text
-    return formatted_articles, claude_text
+    url = "https://www.metaculus.com/proxy/anthropic/v1/messages"
+    
+    headers = {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "model": "claude-3-5-sonnet-20240620",
+        "max_tokens": 4096,
+        "messages": [
+            {
+                "role": "user",
+                "content": PROMPT_TEMPLATE.format(
+                    title=title,
+                    formatted_articles=formatted_articles,
+                    resolution_criteria=resolution_criteria,
+                    today=today,
+                    background=background,
+                    fine_print=fine_print,
+                )
+            }
+        ]
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()  # This will raise an exception for HTTP errors
+        
+        response_data = response.json()
+        claude_text = response_data['content'][0]['text']
+        return formatted_articles, claude_text
+    except requests.RequestException as e:
+            print(f"Error in Claude prediction: {e}")
+            return formatted_articles, None
 
 # Regular expression to find the number following 'Probability:
 def extract_probability(ai_text):
