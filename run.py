@@ -139,9 +139,9 @@ def get_question_details(question_id):
     response.raise_for_status()
     return json.loads(response.content)
 
-def list_questions(tournament_id=WARMUP_TOURNAMENT_ID, offset=0, count=10):
+def list_questions(tournament_id=WARMUP_TOURNAMENT_ID, offset=0, count=None):
     """
-    List (all details) {count} questions from the {tournament_id}
+    List open questions from the {tournament_id}
     """
     url_qparams = {
         "limit": count,
@@ -150,10 +150,12 @@ def list_questions(tournament_id=WARMUP_TOURNAMENT_ID, offset=0, count=10):
         "order_by": "-activity",
         "forecast_type": "binary",
         "project": tournament_id,
-        "status": "active",
+        "status": "open",
         "type": "forecast",
         "include_description": "true",
     }
+    if count is not None:
+        url_qparams["limit"] = count
     url = f"{API_BASE_URL}/questions/"
     response = requests.get(url, **AUTH_HEADERS, params=url_qparams)
     response.raise_for_status()
@@ -182,7 +184,7 @@ def get_formatted_asknews_context(query):
   # get context from the "historical" database that contains a news archive going back to 2023
   historical_response = ask.news.search_news(
       query=query,
-      n_articles=20,
+      n_articles=18,
       return_type="both",
       strategy="news knowledge" # looks for relevant news within the past 60 days
   )
