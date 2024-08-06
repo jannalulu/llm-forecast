@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 
 import sys
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 args = sys.argv
 if len(args) > 1 and args[1] == "dryrun":
@@ -53,7 +56,7 @@ fine print:
 Today is {today}.
 
 Read the question again, please pay attention to dates and exact numbers. Work through each step before making your prediction. Double-check whether your prediction makes sense before stating ZZ.ZZ% is the most likely.
-1. Triage and reference relevant predictions from human if they exist, such as FiveThirtyEight, Polymarket, and Metaculus.
+1. Triage and reference relevant predictions from humans if they exist, such as FiveThirtyEight, Polymarket, and Metaculus.
 2. Break seemingly intractable problems into tractable sub-problems.
 3. Strike the right balance between inside and outside views.
 4. Strike the right balance between under- and overreacting to evidence.
@@ -69,11 +72,6 @@ Output your prediction as “My Prediction: Between XX.XX% and YY.YY%, but ZZ.ZZ
 
 """
 
-"""## Some setup code
-
-This section sets up some simple helper code you can use to get data about forecasting questions and submit a prediction
-"""
-
 import datetime
 import json
 import os
@@ -82,6 +80,9 @@ import re
 from asknews_sdk import AskNewsSDK
 from anthropic import Anthropic
 from openai import OpenAI
+import time
+import logging
+from asknews_sdk.errors import APIError
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api2"
@@ -162,50 +163,61 @@ def list_questions(tournament_id=WARMUP_TOURNAMENT_ID, offset=0, count=None):
     data = json.loads(response.content)
     return data
 
+def asknews_api_call_with_retry(func, *args, **kwargs):
+    max_retries = 3
+    base_delay = 1
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except APIError as e:
+            if e.error_code == 500000:  # Internal Server Error
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logging.warning(f"AskNews API Internal Server Error. Retrying in {delay} seconds...")
+                    time.sleep(delay)
+                else:
+                    logging.error("AskNews API Internal Server Error persisted after max retries.")
+                    raise
+            else:
+                raise
+
 def get_formatted_asknews_context(query):
-  """
-  Use the AskNews `news` endpoint to get news context for your query.
-  The full API reference can be found here: https://docs.asknews.app/en/reference#get-/v1/news/search
-  """
-  ask = AskNewsSDK(
-      client_id=ASKNEWS_CLIENT_ID,
-      client_secret=ASKNEWS_SECRET,
-      scopes=["news"]
-  )
+    """
+    Use the AskNews `news` endpoint to get news context for your query.
+    The full API reference can be found here: https://docs.asknews.app/en/reference#get-/v1/news/search
+    """
+    ask = AskNewsSDK(
+        client_id=ASKNEWS_CLIENT_ID,
+        client_secret=ASKNEWS_SECRET,
+        scopes=["news"]
+    )
 
-  # # get the latest news related to the query (within the past 48 hours)
-  hot_response = ask.news.search_news(
-      query=query, # your natural language query
-      n_articles=5, # control the number of articles to include in the context
-      return_type="both",
-      strategy="latest news" # enforces looking at the latest news only
-  )
+    try:
+        # get the latest news related to the query (within the past 48 hours)
+        hot_response = asknews_api_call_with_retry(
+            ask.news.search_news,
+            query=query,  # your natural language query
+            n_articles=5,  # control the number of articles to include in the context
+            return_type="both",
+            strategy="latest news"  # enforces looking at the latest news only
+        )
 
-  # get context from the "historical" database that contains a news archive going back to 2023
-  historical_response = ask.news.search_news(
-      query=query,
-      n_articles=18,
-      return_type="both",
-      strategy="news knowledge" # looks for relevant news within the past 60 days
-  )
+        # get context from the "historical" database that contains a news archive going back to 2023
+        historical_response = asknews_api_call_with_retry(
+            ask.news.search_news,
+            query=query,
+            n_articles=18,
+            return_type="both",
+            strategy="news knowledge"  # looks for relevant news within the past 60 days
+        )
 
-  # you can also specify a time range for your historical search if you want to
-  # slice your search up periodically.
-  # now = datetime.datetime.now().timestamp()
-  # start = (datetime.datetime.now() - datetime.timedelta(days=100)).timestamp()
-  # historical_response = ask.news.search_news(
-  #     query=query,
-  #     n_articles=20,
-  #     return_type="both",
-  #     historical=True,
-  #     start_timestamp=int(start),
-  #     end_timestamp=int(now)
-  # )
+        formatted_articles = format_asknews_context(
+            hot_response.as_dicts, historical_response.as_dicts)
+    except APIError as e:
+        logging.error(f"AskNews API error: {e}")
+        formatted_articles = "Error fetching news articles. Please try again later."
 
-  llm_context = hot_response.as_string + historical_response.as_string
-  formatted_articles = format_asknews_context(
-      hot_response.as_dicts, historical_response.as_dicts)
-  return formatted_articles
+    return formatted_articles
 
 
 def format_asknews_context(hot_articles, historical_articles):
