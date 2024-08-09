@@ -254,7 +254,7 @@ def format_asknews_context(hot_articles, historical_articles):
   return formatted_articles
 
 #GPT-4 predictions
-def get_gpt_prediction(question_details):
+def get_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     # client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -262,8 +262,6 @@ def get_gpt_prediction(question_details):
     resolution_criteria = question_details["resolution_criteria"]
     background = question_details["description"]
     fine_print = question_details["fine_print"]
-
-    formatted_articles = get_formatted_asknews_context(title)
 
     url = "https://www.metaculus.com/proxy/openai/v1/chat/completions"
     
@@ -294,12 +292,12 @@ def get_gpt_prediction(question_details):
         response.raise_for_status()  # This will raise an exception for HTTP errors
         response_data = response.json()
         gpt_text = response_data['choices'][0]['message']['content']
-        return formatted_articles, gpt_text
+        return gpt_text
     except requests.RequestException as e:
         print(f"Error in GPT prediction: {e}")
-        return formatted_articles, None
+        return None
 
-def get_claude_prediction(question_details):
+def get_claude_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     # client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -307,8 +305,6 @@ def get_claude_prediction(question_details):
     resolution_criteria = question_details["resolution_criteria"]
     background = question_details["description"]
     fine_print = question_details["fine_print"]
-
-    formatted_articles = get_formatted_asknews_context(title)
 
     url = "https://www.metaculus.com/proxy/anthropic/v1/messages"
     
@@ -342,10 +338,10 @@ def get_claude_prediction(question_details):
         
         response_data = response.json()
         claude_text = response_data['content'][0]['text']
-        return formatted_articles, claude_text
+        return claude_text
     except requests.RequestException as e:
             print(f"Error in Claude prediction: {e}")
-            return formatted_articles, None
+            return None
 
 # Regular expression to find the number following 'Probability:
 def extract_probability(ai_text):
@@ -379,8 +375,11 @@ for question_id in open_questions_ids:
     question_details = get_question_details(question_id)
     print("Question details:\n\n", question_details)
 
-    formatted_articles, gpt_result = get_gpt_prediction(question_details)
-    _, claude_result = get_claude_prediction(question_details)
+    # Get formatted articles once for both predictions
+    formatted_articles = get_formatted_asknews_context(question_details["title"])
+
+    gpt_result = get_gpt_prediction(question_details, formatted_articles)
+    claude_result = get_claude_prediction(question_details, formatted_articles)
 
     gpt_probability = extract_probability(gpt_result)
     claude_probability = extract_probability(claude_result)
