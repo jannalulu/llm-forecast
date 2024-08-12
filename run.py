@@ -88,14 +88,12 @@ AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api2"
 WARMUP_TOURNAMENT_ID = 3349
 
+# Find all numbers followed by a '%'
 def find_number_before_percent(s):
-    # Use a regular expression to find all numbers followed by a '%'
     matches = re.findall(r'(\d+(?:\.\d{1,2})?)%', s)
     if matches:
-        # Return the last number found before a '%'
         return float(matches[-1])
     else:
-        # Return None if no number found
         return None
 
 def post_question_comment(question_id, comment_text):
@@ -170,7 +168,7 @@ def asknews_api_call_with_retry(func, *args, **kwargs):
         try:
             return func(*args, **kwargs)
         except APIError as e:
-            if e.error_code == 500000:  # Internal Server Error
+            if e.error_code == 500000:
                 if attempt < max_retries - 1:
                     delay = base_delay * (2 ** attempt)
                     logging.warning(f"AskNews API Internal Server Error. Retrying in {delay} seconds...")
@@ -182,10 +180,6 @@ def asknews_api_call_with_retry(func, *args, **kwargs):
                 raise
 
 def get_formatted_asknews_context(query):
-    """
-    Use the AskNews `news` endpoint to get news context for your query.
-    The full API reference can be found here: https://docs.asknews.app/en/reference#get-/v1/news/search
-    """
     ask = AskNewsSDK(
         client_id=ASKNEWS_CLIENT_ID,
         client_secret=ASKNEWS_SECRET,
@@ -221,10 +215,6 @@ def get_formatted_asknews_context(query):
 
 
 def format_asknews_context(hot_articles, historical_articles):
-  """
-  Format the articles for posting to Metaculus.
-  """
-
   formatted_articles = "Here are the relevant news articles:\n\n"
 
   if hot_articles:
@@ -375,7 +365,6 @@ for question_id in open_questions_ids:
     question_details = get_question_details(question_id)
     print("Question details:\n\n", question_details)
 
-    # Get formatted articles once for both predictions
     formatted_articles = get_formatted_asknews_context(question_details["title"])
 
     gpt_result = get_gpt_prediction(question_details, formatted_articles)
