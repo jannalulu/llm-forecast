@@ -38,59 +38,10 @@ ASKNEWS_SECRET = os.environ.get('ASKNEWS_SECRET')
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api2"
-WARMUP_TOURNAMENT_ID = 3349
+TOURNAMENT_ID = 32506
 
-# Find all numbers followed by a '%'
-def find_number_before_percent(s):
-    matches = re.findall(r'(\d+(?:\.\d{1,2})?)%', s)
-    if matches:
-        return float(matches[-1])
-    else:
-        return None
-
-def post_question_comment(question_id, comment_text):
-    """
-    Post a comment on the question page as the bot user.
-    """
-
-    response = requests.post(
-        f"{API_BASE_URL}/comments/",
-        json={
-            "comment_text": comment_text,
-            "submit_type": "N",
-            "include_latest_prediction": True,
-            "question": question_id,
-        },
-        **AUTH_HEADERS,
-    )
-    response.raise_for_status()
-
-def post_question_prediction(question_id, prediction_percentage):
-    """
-    Post a prediction value (between 1 and 100) on the question.
-    """
-    url = f"{API_BASE_URL}/questions/{question_id}/predict/"
-    response = requests.post(
-        url,
-        json={"prediction": float(prediction_percentage) / 100},
-        **AUTH_HEADERS,
-    )
-    response.raise_for_status()
-
-
-def get_question_details(question_id):
-    """
-    Get all details about a specific question.
-    """
-    url = f"{API_BASE_URL}/questions/{question_id}/"
-    response = requests.get(
-        url,
-        **AUTH_HEADERS,
-    )
-    response.raise_for_status()
-    return json.loads(response.content)
-
-def list_questions(tournament_id=WARMUP_TOURNAMENT_ID, offset=0, count=None):
+# List questions and details
+def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
     """
     List open questions from the {tournament_id}
     """
@@ -164,7 +115,6 @@ def get_formatted_asknews_context(query):
         formatted_articles = "Error fetching news articles. Please try again later."
 
     return formatted_articles
-
 
 def format_asknews_context(hot_articles, historical_articles):
   formatted_articles = "Here are the relevant news articles:\n\n"
@@ -243,10 +193,14 @@ def get_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     # client = OpenAI(api_key=OPENAI_API_KEY)
 
-    title = question_details["title"]
-    resolution_criteria = question_details["resolution_criteria"]
-    background = question_details["description"]
-    fine_print = question_details["fine_print"]
+    prompt_input = {
+        "title": question_details["question"]["title"],
+        "background": question_details["question"]["description"],
+        "resolution_criteria": question_details["question"].get("resolution_criteria", ""),
+        "fine_print": question_details["question"].get("fine_print", ""),
+        "formatted_articles": formatted_articles,
+        "today": today
+    }
 
     url = "https://www.metaculus.com/proxy/openai/v1/chat/completions"
     
@@ -260,14 +214,7 @@ def get_gpt_prediction(question_details, formatted_articles):
         "messages": [
             {
                 "role": "user",
-                "content": PROMPT_TEMPLATE.format(
-                    title=title,
-                    formatted_articles=formatted_articles,
-                    resolution_criteria=resolution_criteria,
-                    today=today,
-                    background=background,
-                    fine_print=fine_print,
-                )
+                "content": PROMPT_TEMPLATE.format(**prompt_input)
             }
         ]
     }
@@ -285,11 +232,14 @@ def get_gpt_prediction(question_details, formatted_articles):
 def get_claude_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     # client = Anthropic(api_key=ANTHROPIC_API_KEY)
-
-    title = question_details["title"]
-    resolution_criteria = question_details["resolution_criteria"]
-    background = question_details["description"]
-    fine_print = question_details["fine_print"]
+    prompt_input = {
+        "title": question_details["question"]["title"],
+        "background": question_details["question"]["description"],
+        "resolution_criteria": question_details["question"].get("resolution_criteria", ""),
+        "fine_print": question_details["question"].get("fine_print", ""),
+        "formatted_articles": formatted_articles,
+        "today": today
+    }
 
     url = "https://www.metaculus.com/proxy/anthropic/v1/messages"
     
@@ -305,21 +255,14 @@ def get_claude_prediction(question_details, formatted_articles):
         "messages": [
             {
                 "role": "user",
-                "content": PROMPT_TEMPLATE.format(
-                    title=title,
-                    formatted_articles=formatted_articles,
-                    resolution_criteria=resolution_criteria,
-                    today=today,
-                    background=background,
-                    fine_print=fine_print,
-                )
+                "content": PROMPT_TEMPLATE.format(**prompt_input)
             }
         ]
     }
     
     try:
         response = requests.post(url, headers=headers, json=data)
-        response.raise_for_status()  # This will raise an exception for HTTP errors
+        response.raise_for_status()
         
         response_data = response.json()
         claude_text = response_data['content'][0]['text']
@@ -328,7 +271,14 @@ def get_claude_prediction(question_details, formatted_articles):
             print(f"Error in Claude prediction: {e}")
             return None
 
-# Regular expression to find the number following 'Probability:
+# Find all numbers followed by a '%'
+def find_number_before_percent(s):
+    matches = re.findall(r'(\d+(?:\.\d{1,2})?)%', s)
+    if matches:
+        return float(matches[-1])
+    else:
+        return None
+    
 def extract_probability(ai_text):
     probability_match = find_number_before_percent(ai_text)
 
@@ -348,12 +298,54 @@ def extract_probability(ai_text):
 questions = list_questions() #find open questions
 
 open_questions_ids = []
+
 for question in questions["results"]:
-    if question["active_state"] == "OPEN":
-        print(f"ID: {question['id']}\nQ: {question['title']}\nCloses: {question['close_time']}")
+    if question["status"] == "open":
+        print(f"ID: {question['id']}\nQ: {question['title']}\nCloses: {question['scheduled_close_time']}")
         open_questions_ids.append(question["id"])
 
-SUBMIT_PREDICTION = True
+def post_question_comment(question_id, comment_text):
+    """
+    Post a comment on the question page as the bot user.
+    """
+    response = requests.post(
+        f"{API_BASE_URL}/comments/",
+        json={
+            "comment_text": comment_text,
+            "submit_type": "N",
+            "include_latest_prediction": True,
+            "question": question_id,
+        },
+        **AUTH_HEADERS,
+    )
+    response.raise_for_status()
+
+def post_question_prediction(question_id, prediction_percentage):
+    """
+    Post a prediction value (between 1 and 100) on the question.
+    """
+    url = f"{API_BASE_URL}/questions/{question_id}/predict/"
+    response = requests.post(
+        url,
+        json={"prediction": float(prediction_percentage) / 100},
+        **AUTH_HEADERS,
+    )
+    response.raise_for_status()
+
+
+def get_question_details(question_id):
+    """
+    Get all details about a specific question.
+    """
+    url = f"{API_BASE_URL}/questions/{question_id}/"
+    response = requests.get(
+        url,
+        **AUTH_HEADERS,
+    )
+    response.raise_for_status()
+    return json.loads(response.content)
+
+SUBMIT_PREDICTION = False
 
 for question_id in open_questions_ids:
     print(f"Question id: {question_id}\n\n")
