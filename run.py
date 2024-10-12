@@ -1,8 +1,18 @@
-# -*- coding: utf-8 -*-
-
+import json
+import os
+import requests
+import re
+from asknews_sdk import AskNewsSDK
+# from anthropic import Anthropic
+# from openai import OpenAI
+import time
+from asknews_sdk.errors import APIError
 import sys
 import logging
 import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 log_filename = f"annabot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 logging.basicConfig(
@@ -19,78 +29,12 @@ if len(args) > 1 and args[1] == "dryrun":
     print("dry run, doing nothing")
     exit(0)
 
-## AI Forecasting AnnaBot
 
-def read_secrets(path):
-    secrets = {}
-    with open(path) as f:
-        for l in f:
-            kv = l.strip().split('=', 1)
-            k = kv[0]
-            v = kv[1]
-            secrets[k] = v
-    return secrets
-
-secrets = read_secrets("secrets.txt")
-
-METACULUS_TOKEN = secrets['METACULUS_TOKEN']
-# OPENAI_API_KEY = secrets['OPENAI_API_KEY']
-ASKNEWS_CLIENT_ID = secrets['ASKNEWS_CLIENT_ID']
-ASKNEWS_SECRET = secrets['ASKNEWS_SECRET']
-# ANTHROPIC_API_KEY = secrets['ANTHROPIC_API_KEY']
-
-PROMPT_TEMPLATE = """
-You are a superforecaster who has a strong track record of accurate forecasting. You evaluate past data and trends carefully for potential clues to future events, while recognising that the past is an imperfect guide to the future so you will need to put probabilities on possible future outcomes (ranging from 0 to 100%). Your specific goal is to maximize the accuracy of these probability judgments by minimising the Brier scores that your probability judgments receive once future outcomes are known.
-Brier scores have two key components:
-1. calibration (across all questions you answer, the probability estimates you assign to possible future outcomes should correspond as closely as possible to the objective frequency with which outcomes occur).
-2. resolution (across all questions, aim to assign higher probabilities to events that occur than to events that do not occur).
-
-The question that you are forecasting as well as some background information and resolution criteria are below. 
-
-Your question is:
-{title}
-
-The Resolution Criteria for the question is:
-{resolution_criteria}
-
-You found the following news articles related to the question:
-{formatted_articles}
-
-background:
-{background}
-
-fine print:
-{fine_print}
-
-Today is {today}.
-
-Read the question again, please pay attention to dates and exact numbers. Work through each step before making your prediction. Double-check whether your prediction makes sense before stating ZZ.ZZ% is the most likely.
-Carefully outline your reasons for each forecast: list the strongest evidence and arguments for making lower or higher estimates and explain how you balance the evidence to make your own forecast. You begin this analytic process by looking for reference or comparison classes of similar events and grounding your initial estimates in base rates of occurrence (how often do events of this sort occur in situations that look like the present one?). You then adjust that initial estimate in response to the latest news and distinctive features of the present situation, recognising the need for flexible adjustments but also the risks of over-adjusting and excessive volatility. Superforecasting requires weighing the risks of opposing errors: e.g., of failing to learn from useful historical patterns vs. over-relying on misleading patterns. In this process of error balancing, you draw on the 10 commandments of superforecasting (Tetlock & Gardner, 2015) as well as on other peer-reviewed research on superforecasting.
-1. Triage and reference relevant predictions from humans if they exist, such as FiveThirtyEight, Polymarket, and Metaculus.
-2. Break seemingly intractable problems into tractable sub-problems.
-3. Strike the right balance between inside and outside views.
-4. Strike the right balance between under- and overreacting to evidence.
-5. Look for the clashing causal forces at work in each problem.
-6. Extrapolate current the trends linearly.
-7. Strive to distinguish as many degrees of doubt as the problem permits but no more.
-8. Strike the right balance between under- and overconfidence, between prudence and decisiveness.
-9. Look for the errors behind your mistakes but beware of rearview-mirror hindsight biases.
-
-Once you have written your reasons, ensure that they directly inform your forecast; please make sure that you're answering the {title}. Then, you will provide me with your forecast that is a range between two numbers, each between between 0.10 and 99.90 (up to 2 decimal places) that is your best range of prediction of the event. 
-Output your prediction as “My Prediction: Between XX.XX% and YY.YY%, but ZZ.ZZ% being the most likely. Probability: ZZ.ZZ%." Please not add anything after. 
-
-"""
-
-import datetime
-import json
-import os
-import requests
-import re
-from asknews_sdk import AskNewsSDK
-from anthropic import Anthropic
-from openai import OpenAI
-import time
-from asknews_sdk.errors import APIError
+METACULUS_TOKEN = os.environ.get('METACULUS_TOKEN')
+# OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+ASKNEWS_CLIENT_ID = os.environ.get('ASKNEWS_CLIENT_ID')
+ASKNEWS_SECRET = os.environ.get('ASKNEWS_SECRET')
+# ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api2"
@@ -251,6 +195,49 @@ def format_asknews_context(hot_articles, historical_articles):
   logging.info(f"News articles:\n{formatted_articles}")
   return formatted_articles
 
+# Prompt
+PROMPT_TEMPLATE = """
+You are a superforecaster who has a strong track record of accurate forecasting. You evaluate past data and trends carefully for potential clues to future events, while recognising that the past is an imperfect guide to the future so you will need to put probabilities on possible future outcomes (ranging from 0 to 100%). Your specific goal is to maximize the accuracy of these probability judgments by minimising the Brier scores that your probability judgments receive once future outcomes are known.
+Brier scores have two key components:
+1. calibration (across all questions you answer, the probability estimates you assign to possible future outcomes should correspond as closely as possible to the objective frequency with which outcomes occur).
+2. resolution (across all questions, aim to assign higher probabilities to events that occur than to events that do not occur).
+
+The question that you are forecasting as well as some background information and resolution criteria are below. 
+
+Your question is:
+{title}
+
+The Resolution Criteria for the question is:
+{resolution_criteria}
+
+You found the following news articles related to the question:
+{formatted_articles}
+
+background:
+{background}
+
+fine print:
+{fine_print}
+
+Today is {today}.
+
+Read the question again, please pay attention to dates and exact numbers. Work through each step before making your prediction. Double-check whether your prediction makes sense before stating ZZ.ZZ% is the most likely.
+Carefully outline your reasons for each forecast: list the strongest evidence and arguments for making lower or higher estimates and explain how you balance the evidence to make your own forecast. You begin this analytic process by looking for reference or comparison classes of similar events and grounding your initial estimates in base rates of occurrence (how often do events of this sort occur in situations that look like the present one?). You then adjust that initial estimate in response to the latest news and distinctive features of the present situation, recognising the need for flexible adjustments but also the risks of over-adjusting and excessive volatility. Superforecasting requires weighing the risks of opposing errors: e.g., of failing to learn from useful historical patterns vs. over-relying on misleading patterns. In this process of error balancing, you draw on the 10 commandments of superforecasting (Tetlock & Gardner, 2015) as well as on other peer-reviewed research on superforecasting.
+1. Triage and reference relevant predictions from humans if they exist, such as FiveThirtyEight, Polymarket, and Metaculus.
+2. Break seemingly intractable problems into tractable sub-problems.
+3. Strike the right balance between inside and outside views.
+4. Strike the right balance between under- and overreacting to evidence.
+5. Look for the clashing causal forces at work in each problem.
+6. Extrapolate current the trends linearly.
+7. Strive to distinguish as many degrees of doubt as the problem permits but no more.
+8. Strike the right balance between under- and overconfidence, between prudence and decisiveness.
+9. Look for the errors behind your mistakes but beware of rearview-mirror hindsight biases.
+
+Once you have written your reasons, ensure that they directly inform your forecast; please make sure that you're answering the {title}. Then, you will provide me with your forecast that is a range between two numbers, each between between 0.10 and 99.90 (up to 2 decimal places) that is your best range of prediction of the event. 
+Output your prediction as “My Prediction: Between XX.XX% and YY.YY%, but ZZ.ZZ% being the most likely. Probability: ZZ.ZZ%." Please not add anything after. 
+
+"""
+
 #GPT-4 predictions
 def get_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -287,7 +274,7 @@ def get_gpt_prediction(question_details, formatted_articles):
     
     try:
         response = requests.post(url, headers=headers, json=data)
-        response.raise_for_status()  # This will raise an exception for HTTP errors
+        response.raise_for_status()
         response_data = response.json()
         gpt_text = response_data['choices'][0]['message']['content']
         return gpt_text
