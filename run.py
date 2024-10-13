@@ -3,8 +3,6 @@ import os
 import requests
 import re
 from asknews_sdk import AskNewsSDK
-# from anthropic import Anthropic
-# from openai import OpenAI
 import time
 from asknews_sdk.errors import APIError
 import sys
@@ -41,6 +39,30 @@ API_BASE_URL = "https://www.metaculus.com/api2"
 TOURNAMENT_ID = 32506
 
 # List questions and details
+
+def setup_question_logger(question_id, log_type):
+    """Set up a logger for a specific question and log type."""
+    log_filename = f"logs/{question_id}_{log_type}.log"
+    logger = logging.getLogger(f"{question_id}_{log_type}")
+    logger.setLevel(logging.INFO)
+    file_handler = logging.FileHandler(log_filename, mode='a', encoding='utf-8')
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    return logger
+
+def log_question_reasoning(question_id, reasoning, question_title):
+    """Log the reasoning for a specific question."""
+    logger = setup_question_logger(question_id, "reasoning")
+    logger.info(f"Question: {question_title}")
+    logger.info(f"Reasoning for question {question_id}:\n{reasoning}")
+
+def log_question_news(question_id, news, question_title):
+    """Log the news articles for a specific question."""
+    logger = setup_question_logger(question_id, "news")
+    logger.info(f"Question: {question_title}")
+    logger.info(f"News articles for question {question_id}:\n{news}")
+
 def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
     """
     List open questions from the {tournament_id}
@@ -353,7 +375,7 @@ for question_id in open_questions_ids:
     print("Question details:\n\n", question_details)
 
     formatted_articles = get_formatted_asknews_context(question_details["title"])
-
+    log_question_news(question_id, formatted_articles, question_details["question"]["title"])
     gpt_result = get_gpt_prediction(question_details, formatted_articles)
     claude_result = get_claude_prediction(question_details, formatted_articles)
 
@@ -365,8 +387,7 @@ for question_id in open_questions_ids:
         logging.info(f"GPT probability: {gpt_probability}%")
         logging.info(f"Claude probability: {claude_probability}%")
         logging.info(f"Average probability: {average_probability}%")
-        logging.info(f"GPT reasoning: {gpt_result}")
-        logging.info(f"Claude reasoning: {claude_result}")
+        log_question_reasoning(question_id, f"GPT reasoning:\n{gpt_result}\n\nClaude reasoning:\n{claude_result}", question_details["question"]["title"])
 
         if SUBMIT_PREDICTION:
             post_question_prediction(question_id, average_probability)
