@@ -9,6 +9,7 @@ import sys
 import logging
 import datetime
 from dotenv import load_dotenv
+from anthropic import Anthropic
 
 load_dotenv()
 
@@ -17,7 +18,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("annabot.log", mode='a', encoding='utf-8'),
+        logging.FileHandler("annabot_newsonnet.log", mode='a', encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -27,12 +28,11 @@ if len(args) > 1 and args[1] == "dryrun":
     print("dry run, doing nothing")
     exit(0)
 
-
 METACULUS_TOKEN = os.environ.get('METACULUS_TOKEN')
 # OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 ASKNEWS_CLIENT_ID = os.environ.get('ASKNEWS_CLIENT_ID')
 ASKNEWS_SECRET = os.environ.get('ASKNEWS_SECRET')
-# ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api2"
@@ -125,7 +125,7 @@ def get_formatted_asknews_context(query):
         historical_response = asknews_api_call_with_retry(
             ask.news.search_news,
             query=query,
-            n_articles=18,
+            n_articles=25,
             return_type="both",
             strategy="news knowledge"  # looks for relevant news within the past 60 days
         )
@@ -253,7 +253,6 @@ def get_gpt_prediction(question_details, formatted_articles):
 
 def get_claude_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    # client = Anthropic(api_key=ANTHROPIC_API_KEY)
     prompt_input = {
         "title": question_details["question"]["title"],
         "background": question_details["question"]["description"],
@@ -263,35 +262,30 @@ def get_claude_prediction(question_details, formatted_articles):
         "today": today
     }
 
-    url = "https://www.metaculus.com/proxy/anthropic/v1/messages"
-    
-    headers = {
-        "Authorization": f"Token {METACULUS_TOKEN}",
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json"
-    }
-    
-    data = {
-        "model": "claude-3-5-sonnet-20240620",
-        "max_tokens": 4096,
-        "messages": [
-            {
-                "role": "user",
-                "content": PROMPT_TEMPLATE.format(**prompt_input)
-            }
-        ]
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, json=data)
-        response.raise_for_status()
-        
-        response_data = response.json()
-        claude_text = response_data['content'][0]['text']
-        return claude_text
-    except requests.RequestException as e:
-            print(f"Error in Claude prediction: {e}")
-            return None
+    client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    max_retries = 10
+    base_delay = 1
+
+    for attempt in range(max_retries):
+        try:
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=4096,
+                messages=[
+                {"role": "user", "content": PROMPT_TEMPLATE.format(**prompt_input)}
+                ]
+            )
+            claude_text = response.content[0].text
+            return claude_text
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                logging.warning(f"Claude API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                time.sleep(delay)
+            else:
+                logging.error(f"Claude API error persisted after {max_retries} retries: {e}")
+                return None
 
 # Find all numbers followed by a '%'
 def find_number_before_percent(s):
@@ -367,7 +361,7 @@ def get_question_details(question_id):
     response.raise_for_status()
     return json.loads(response.content)
 
-SUBMIT_PREDICTION = False
+SUBMIT_PREDICTION = True
 
 for question_id in open_questions_ids:
     print(f"Question id: {question_id}\n\n")
