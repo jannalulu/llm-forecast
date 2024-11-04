@@ -36,7 +36,8 @@ ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api2"
-TOURNAMENT_ID = 32506
+TOURNAMENT_ID = 3672
+# TOURNAMENT_ID = 32506
 
 # List questions and details
 
@@ -87,7 +88,7 @@ def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
     return data
 
 def asknews_api_call_with_retry(func, *args, **kwargs):
-    max_retries = 3
+    max_retries = 5
     base_delay = 1
     for attempt in range(max_retries):
         try:
@@ -211,6 +212,33 @@ Output your prediction as “My Prediction: Between XX.XX% and YY.YY%, but ZZ.ZZ
 """
 
 #GPT-4 predictions
+def get_summary_from_gpt(all_runs_text):
+    url = "https://www.metaculus.com/proxy/openai/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "model": "gpt-4o",
+        "messages": [
+            {
+                "role": "user",
+                "content": f"Please provide a concise summary of these forecasting runs, focusing on the key points of reasoning and how they led to the probabilities. You must include the probabilities from each run. Here are the runs:\n\n{all_runs_text}"
+            }
+        ]
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        response_data = response.json()
+        return response_data['choices'][0]['message']['content']
+    except requests.RequestException as e:
+        print(f"Error getting summary: {e}")
+        return None
+
 def get_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     # client = OpenAI(api_key=OPENAI_API_KEY)
@@ -309,17 +337,6 @@ def extract_probability(ai_text):
         print("Unable to extract probability.")
         return None
 
-#GPT prediction and submitting a forecast
-
-questions = list_questions() #find open questions
-
-open_questions_ids = []
-
-for question in questions["results"]:
-    if question["status"] == "open":
-        print(f"ID: {question['id']}\nQ: {question['title']}\nCloses: {question['scheduled_close_time']}")
-        open_questions_ids.append(question["id"])
-
 def post_question_comment(question_id, comment_text):
     """
     Post a comment on the question page as the bot user.
@@ -349,6 +366,48 @@ def post_question_prediction(question_id, prediction_percentage):
     response.raise_for_status()
 
 
+def log_predictions_json(question_id, question_title, gpt_results, claude_results, gpt_texts, claude_texts, average_probability):
+    """Log predictions and reasoning to a JSON file."""
+    json_filename = "metaculus_predictions.json"
+    
+    prediction_data = {
+        "question_id": question_id,
+        "question_title": question_title,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "runs": [],
+        "average_probability": average_probability
+    }
+    
+    for i in range(len(gpt_results)):
+        prediction_data["runs"].append({
+            "run_number": i + 1,
+            "gpt_prediction": gpt_results[i],
+            "gpt_reasoning": gpt_texts[i],
+            "claude_prediction": claude_results[i],
+            "claude_reasoning": claude_texts[i]
+        })
+    
+    try:
+        if os.path.exists(json_filename):
+            with open(json_filename, 'r', encoding='utf-8') as json_file:
+                existing_data = json.load(json_file)
+        else:
+            existing_data = []
+            
+        # Update existing entry or add new one
+        existing_entry = next((item for item in existing_data if item["question_id"] == question_id), None)
+        if existing_entry:
+            existing_entry.update(prediction_data)
+        else:
+            existing_data.append(prediction_data)
+            
+        with open(json_filename, 'w', encoding='utf-8') as json_file:
+            json.dump(existing_data, json_file, ensure_ascii=False, indent=2)
+            
+        logging.info(f"Successfully logged predictions for question {question_id} to {json_filename}")
+    except Exception as e:
+        logging.error(f"Error writing to {json_filename}: {str(e)}")
+
 def get_question_details(question_id):
     """
     Get all details about a specific question.
@@ -361,7 +420,17 @@ def get_question_details(question_id):
     response.raise_for_status()
     return json.loads(response.content)
 
-SUBMIT_PREDICTION = True
+SUBMIT_PREDICTION = False
+
+#GPT prediction and submitting a forecast
+
+questions = list_questions() #find open questions
+
+open_questions_ids = []
+for question in questions["results"]:
+    if question["status"] == "open":
+        print(f"ID: {question['id']}\nQ: {question['title']}\nCloses: {question['scheduled_close_time']}")
+        open_questions_ids.append(question["id"])
 
 for question_id in open_questions_ids:
     print(f"Question id: {question_id}\n\n")
@@ -370,22 +439,57 @@ for question_id in open_questions_ids:
 
     formatted_articles = get_formatted_asknews_context(question_details["title"])
     log_question_news(question_id, formatted_articles, question_details["question"]["title"])
-    gpt_result = get_gpt_prediction(question_details, formatted_articles)
-    claude_result = get_claude_prediction(question_details, formatted_articles)
+    gpt_probabilities = []
+    claude_probabilities = []
+    gpt_texts = []
+    claude_texts = []
+    all_reasoning = ""
+    
+    for run in range(5):
+        gpt_result = get_gpt_prediction(question_details, formatted_articles)
+        claude_result = get_claude_prediction(question_details, formatted_articles)
 
-    gpt_probability = extract_probability(gpt_result)
-    claude_probability = extract_probability(claude_result)
+        gpt_probability = extract_probability(gpt_result)
+        claude_probability = extract_probability(claude_result)
 
-    if gpt_probability is not None and claude_probability is not None:
-        average_probability = (gpt_probability + claude_probability) / 2
-        logging.info(f"GPT probability: {gpt_probability}%")
-        logging.info(f"Claude probability: {claude_probability}%")
-        logging.info(f"Average probability: {average_probability}%")
-        log_question_reasoning(question_id, f"GPT reasoning:\n{gpt_result}\n\nClaude reasoning:\n{claude_result}", question_details["question"]["title"])
+        if gpt_probability is not None and claude_probability is not None:
+            gpt_probabilities.append(gpt_probability)
+            claude_probabilities.append(claude_probability)
+            gpt_texts.append(gpt_result)
+            claude_texts.append(claude_result)
+            logging.info(f"Run {run + 1} - GPT probability: {gpt_probability}%")
+            logging.info(f"Run {run + 1} - Claude probability: {claude_probability}%")
+            all_reasoning += f"Run {run + 1}\nGPT reasoning:\n{gpt_result}\n\nClaude reasoning:\n{claude_result}\n\n"
+    
+    if gpt_probabilities and claude_probabilities:
+        all_probabilities = gpt_probabilities + claude_probabilities
+        average_probability = sum(all_probabilities) / len(all_probabilities)
+        logging.info(f"Final average probability across all runs: {average_probability}%")
+        log_question_reasoning(question_id, all_reasoning, question_details["question"]["title"])
 
         if SUBMIT_PREDICTION:
             post_question_prediction(question_id, average_probability)
-            comment = (f"Run 1\n\n" + gpt_result + "\n\n#########\n\n" + "Run 2\n\n" + claude_result)
+            log_predictions_json(
+                question_id, 
+                question_details["question"]["title"],
+                gpt_probabilities,
+                claude_probabilities,
+                gpt_texts,
+                claude_texts,
+                average_probability
+            )
+            stats_summary = "Summary of probabilities:\n"
+            for i in range(5):
+                stats_summary += f"Run {i+1}:\n"
+                stats_summary += f"GPT: {gpt_probabilities[i]}%\n"
+                stats_summary += f"Claude: {claude_probabilities[i]}%\n\n"
+            stats_summary += f"\nFinal average probability: {average_probability}%"
+            
+            reasoning_summary = get_summary_from_gpt(all_reasoning)
+            if reasoning_summary:
+                comment = stats_summary + "\n\nReasoning Summary:\n" + reasoning_summary
+            else:
+                comment = stats_summary + "\n\n" + all_reasoning
             print(f"Posting comment: {comment}\n\n")
             post_question_comment(question_id, comment)
     else:
