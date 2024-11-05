@@ -59,7 +59,7 @@ def log_question_reasoning(question_id, reasoning, question_title, model_name, r
     
     # JSON logging
     today = datetime.datetime.now().strftime('%Y%m%d')
-    json_filename = f"reasoning_{today}.json"
+    json_filename = f"logs/reasoning_{today}.json"
     
     question_data = {
         "question_id": question_id,
@@ -592,8 +592,7 @@ for question_id in open_questions_ids:
             response = requests.post(url, headers=headers, json=summary_data)
             response.raise_for_status()
             summary = response.json()['choices'][0]['message']['content']
-            
-            # Log summary to JSON
+
             summary_data = {
                 "question_id": question_id,
                 "question_title": question_details["question"]["title"],
@@ -612,9 +611,13 @@ for question_id in open_questions_ids:
                 
                 existing_entry = next((item for item in existing_data if item["question_id"] == question_id), None)
                 if existing_entry:
-                    existing_entry.update(summary_data)
+                    existing_entry["summary"] = summary
                 else:
-                    existing_data.append(summary_data)
+                    existing_data.append({
+                        "question_id": question_id,
+                        "question_title": question_details["question"]["title"],
+                        "summary": summary
+                    })
                 
                 with open(json_filename, 'w', encoding='utf-8') as json_file:
                     json.dump(existing_data, json_file, ensure_ascii=False, indent=2)
