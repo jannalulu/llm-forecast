@@ -518,7 +518,7 @@ def get_question_details(question_id):
     response.raise_for_status()
     return json.loads(response.content)
 
-SUBMIT_PREDICTION = False
+SUBMIT_PREDICTION = True
 
 #GPT prediction and submitting a forecast
 
