@@ -466,7 +466,7 @@ def post_question_prediction(question_id, prediction_percentage):
 
 def log_predictions_json(question_id, question_title, gpt_results, claude_results, gpt_texts, claude_texts, average_probability):
     """Log predictions and reasoning to a JSON file."""
-    json_filename = "metaculus_predictions.json"
+    json_filename = "logs/reasoning_{today}.json"
     
     prediction_data = {
         "question_id": question_id,
@@ -539,6 +539,8 @@ for question_id in open_questions_ids:
     log_question_news(question_id, formatted_articles, question_details["question"]["title"])
     gpt_probabilities = []
     claude_probabilities = []
+    gpt_texts = []
+    claude_texts = []
     
     for run in range(5):
         print(f"Run {run} for question {question_id}")
@@ -546,6 +548,11 @@ for question_id in open_questions_ids:
         gpt_result = get_gpt_prediction(question_details, formatted_articles)
         claude_result = get_claude_prediction(question_details, formatted_articles)
         
+        if gpt_result:
+            gpt_texts.append(gpt_result)
+        if claude_result:
+            claude_texts.append(claude_result)
+            
         log_question_reasoning(question_id, gpt_result, question_details["question"]["title"], "gpt", run)
         log_question_reasoning(question_id, claude_result, question_details["question"]["title"], "claude", run)
 
@@ -620,6 +627,7 @@ for question_id in open_questions_ids:
                 comment = f"Summary of 5 runs:\n\n{summary}\n\nFinal prediction: {average_probability:.2f}%"
                 print(f"Posting comment: {comment}\n\n")
                 post_question_comment(question_id, comment)
+
         except Exception as e:
             logging.error(f"Error getting summary: {e}")
     else:
