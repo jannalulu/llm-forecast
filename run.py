@@ -183,6 +183,7 @@ def get_formatted_asknews_context(query):
             query=query,  # your natural language query
             n_articles=5,  # control the number of articles to include in the context
             return_type="both",
+            premium=True,
             strategy="latest news"  # enforces looking at the latest news only
         )
 
@@ -345,7 +346,7 @@ def get_gpt_prediction(question_details, formatted_articles):
             return gpt_text
         except requests.RequestException as e:
             if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                delay = base_delay * (2 ** attempt)
                 logging.warning(f"GPT API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
                 time.sleep(delay)
             else:
