@@ -260,7 +260,6 @@ def format_asknews_context(hot_articles, historical_articles):
 #GPT-4 predictions
 def get_binary_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    client = OpenAI(api_key=OPENAI_API_KEY)
 
     prompt_input = {
         "title": question_details["question"]["title"],
@@ -270,22 +269,36 @@ def get_binary_gpt_prediction(question_details, formatted_articles):
         "formatted_articles": formatted_articles,
         "today": today
     }
+
+
+    url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
+
+    headers = {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "gpt-4o",
+        "messages": [
+            {
+                "role": "user",
+                "content": BINARY_PROMPT.format(**prompt_input)
+            }
+        ]
+    }
     
     max_retries = 10
     base_delay = 1
     
     for attempt in range(max_retries):
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{
-                    "role": "user",
-                    "content": BINARY_PROMPT.format(**prompt_input)
-                }]
-            )
-            gpt_text = response.choices[0].message.content
+            response = requests.post(url, headers=headers, json=data)
+            response.raise_for_status()
+            response_data = response.json()
+            gpt_text = response_data.choices[0].message.content
             return gpt_text
-        except Exception as e:
+        except requests.RequestException as e:
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
                 logging.warning(f"GPT API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
@@ -296,7 +309,6 @@ def get_binary_gpt_prediction(question_details, formatted_articles):
 
 def get_binary_claude_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    client = Anthropic(api_key=ANTHROPIC_API_KEY)
     
     prompt_input = {
         "title": question_details["question"]["title"],
@@ -306,23 +318,38 @@ def get_binary_claude_prediction(question_details, formatted_articles):
         "formatted_articles": formatted_articles,
         "today": today
     }
-    
+
+    url = "https://www.metaculus.com/proxy/anthropic/v1/messages/"
+
+    headers = {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 4096,
+        "messages": [
+            {
+                "role": "user",
+                "content": BINARY_PROMPT.format(**prompt_input)
+            }
+        ]
+    }
+
     max_retries = 10
     base_delay = 1
     
     for attempt in range(max_retries):
         try:
-            response = client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=4096,
-                messages=[{
-                    "role": "user",
-                    "content": BINARY_PROMPT.format(**prompt_input)
-                }]
-            )
-            claude_text = response.content[0].text
+            response = requests.post(url, headers=headers, json=data)
+            response.raise_for_status()
+
+            response_data = response.json()
+            claude_text = response_data['content'][0]['text']
             return claude_text
-        except Exception as e:
+        except requests.RequestException as e:
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
                 logging.warning(f"Claude API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
@@ -366,21 +393,33 @@ def get_numeric_claude_prediction(question_details, formatted_articles):
         "upper_bound_message": f"The outcome can not be higher than {question_details['question']['scaling']['range_max']}." if not question_details["question"]["open_upper_bound"] else ""
     }
 
-    client = Anthropic(api_key=ANTHROPIC_API_KEY)
-    
+    url = "https://www.metaculus.com/proxy/anthropic/v1/messages/"
+    headers = {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 4096,
+        "messages": [
+            {
+                "role": "user",
+                "content": NUMERIC_PROMPT.format(**prompt_input)
+            }
+        ]
+    }
+
     max_retries = 10
     base_delay = 1
     
     for attempt in range(max_retries):
         try:
-            response = client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=4096,
-                messages=[{
-                    "role": "user",
-                    "content": NUMERIC_PROMPT.format(**prompt_input)
-                }]
-            )
+            response = requests.post(url, headers=headers, json=data)
+            response.raise_for_status()
+            response_data = response.json()
+            claude_text = response_data['content'][0]['text']
             claude_text = response.content[0].text
             
             percentile_values = extract_percentiles_from_response(claude_text)
@@ -416,22 +455,33 @@ def get_multiple_choice_claude_prediction(question_details, formatted_articles):
         "options": question_details["question"]["options"]
     }
 
-    client = Anthropic(api_key=ANTHROPIC_API_KEY)
-    
+    url = "https://www.metaculus.com/proxy/anthropic/v1/messages/"
+    headers = {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 4096,
+        "messages": [
+            {
+                "role": "user",
+                "content": MULTIPLE_CHOICE_PROMPT.format(**prompt_input)
+            }
+        ]
+    }
+
     max_retries = 10
     base_delay = 1
     
     for attempt in range(max_retries):
         try:
-            response = client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=4096,
-                messages=[{
-                    "role": "user",
-                    "content": MULTIPLE_CHOICE_PROMPT.format(**prompt_input)
-                }]
-            )
-            claude_text = response.content[0].text
+            response = requests.post(url, headers=headers, json=data)
+            response.raise_for_status()
+            response_data = response.json()
+            claude_text = response_data['content'][0]['text']
             
             option_probabilities = extract_option_probabilities_from_response(claude_text, question_details["question"]["options"])
             total_sum = sum(option_probabilities)
@@ -475,21 +525,31 @@ def get_numeric_gpt_prediction(question_details, formatted_articles):
         "upper_bound_message": f"The outcome can not be higher than {question_details['question']['scaling']['range_max']}." if not question_details["question"]["open_upper_bound"] else ""
     }
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
+    headers = {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "gpt-4o",
+        "messages": [
+            {
+                "role": "user",
+                "content": NUMERIC_PROMPT.format(**prompt_input)
+            }
+        ]
+    }
     
     max_retries = 10
     base_delay = 1
     
     for attempt in range(max_retries):
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{
-                    "role": "user",
-                    "content": NUMERIC_PROMPT.format(**prompt_input)
-                }]
-            )
-            gpt_text = response.choices[0].message.content
+            response = requests.post(url, headers=headers, json=data)
+            response.raise_for_status()
+            response_data = response.json()
+            gpt_text = response_data.choices[0].message.content
             
             percentile_values = extract_percentiles_from_response(gpt_text)
             cdf = generate_continuous_cdf(
@@ -524,21 +584,31 @@ def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
         "options": question_details["question"]["options"]
     }
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
+    headers = {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": "gpt-4o",
+        "messages": [
+            {
+                "role": "user",
+                "content": MULTIPLE_CHOICE_PROMPT.format(**prompt_input)
+            }
+        ]
+    }
     
     max_retries = 10
     base_delay = 1
     
     for attempt in range(max_retries):
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{
-                    "role": "user",
-                    "content": MULTIPLE_CHOICE_PROMPT.format(**prompt_input)
-                }]
-            )
-            gpt_text = response.choices[0].message.content
+            response = requests.post(url, headers=headers, json=data)
+            response.raise_for_status()
+            response_data = response.json()
+            gpt_text = response_data.choices[0].message.content
             
             option_probabilities = extract_option_probabilities_from_response(gpt_text, question_details["question"]["options"])
             total_sum = sum(option_probabilities)
@@ -556,6 +626,7 @@ def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
                 logging.warning(f"GPT API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                logging.error(f"Response content: {e.response.text if hasattr(e, 'response') else 'No response'}")
                 time.sleep(delay)
             else:
                 logging.error(f"GPT API error persisted after {max_retries} retries: {e}")
@@ -984,7 +1055,7 @@ def calculate_final_prediction(results, question_details):
     
     return None
 
-SUBMIT_PREDICTION = True
+SUBMIT_PREDICTION = False
 
 #Submitting a forecast
 def main():
