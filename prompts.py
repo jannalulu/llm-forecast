@@ -77,19 +77,17 @@ Option_N: Probability_N
 NUMERIC_PROMPT = """
 You are a professional forecaster interviewing for a job.
 
-Your interview question is:
-{title}
-
-Background:
-{background}
-
+The Resolution Criteria for the question is:
 {resolution_criteria}
 
+You found the following news articles related to the question:
+{formatted_articles}
+
+background:
+{background}
+
+fine print:
 {fine_print}
-
-
-Your research assistant says:
-{summary_report}
 
 Today is {today}.
 
