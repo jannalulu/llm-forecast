@@ -243,31 +243,29 @@ def format_asknews_context(hot_articles, historical_articles):
 
 #GPT-4 predictions
 def get_summary_from_gpt(all_runs_text):
-    url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
-    
-    headers = {
-        "Authorization": f"Token {METACULUS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    
-    data = {
-        "model": "gpt-4o",
-        "messages": [
-            {
-                "role": "user",
-                "content": f"Please provide a concise summary of these forecasting runs, focusing on the key points of reasoning and how they led to the probabilities. You must include the probabilities from each run. Here are the runs:\n\n{all_runs_text}"
-            }
-        ]
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, json=data)
-        response.raise_for_status()
-        response_data = response.json()
-        return response_data['choices'][0]['message']['content']
-    except requests.RequestException as e:
-        print(f"Error getting summary: {e}")
-        return None
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    max_retries = 10
+    base_delay = 1
+
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model='gpt-4o',
+                messages=[{
+                    "role": "user",
+                    "content": f"Please provide a concise summary of these forecasting runs, focusing on the key points of reasoning and how they led to the probabilities. You must include the probabilities from each run. Here are the runs:\n\n{all_runs_text}"
+                }]
+            )
+            summary_text=response.choices[0].message.content
+            return summary_text
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logging.warning(f"GPT API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                time.sleep(delay)
+            else:
+                logging.error(f"GPT API error persisted after {max_retries} retries: {e}")
+                return None
 
 def get_binary_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -978,39 +976,44 @@ def main():
                         claude_results,
                         gpt_texts,
                         claude_texts,
-                        forecast_payload
+                        final_prediction
                     )
                     
                     if SUBMIT_PREDICTION:
-                        # Submit prediction
+                        # Submit prediction using question_id
                         post_question_prediction(question_id, forecast_payload)
                         
                         # Format and post comment based on question type
                         if question_type == "binary":
-                            pred_value = forecast_payload["prediction"] * 100
+                            pred_value = final_prediction["prediction"] * 100
                             comment = f"Summary of {num_runs} runs:\n\n{summary}\n\nFinal prediction: {pred_value:.2f}%"
                         elif question_type == "numeric":
                             comment = (
                                 f"Summary of prediction:\n\n{summary}\n\n"
                                 f"Numeric prediction submitted (CDF with 201 points)\n"
                                 f"Key percentiles:\n"
-                                f"- 25th: {np.percentile(forecast_payload['continuous_cdf'], 25):.2f}\n"
-                                f"- 50th: {np.percentile(forecast_payload['continuous_cdf'], 50):.2f}\n"
-                                f"- 75th: {np.percentile(forecast_payload['continuous_cdf'], 75):.2f}"
+                                f"- 25th: {np.percentile(final_prediction['continuous_cdf'], 25):.2f}\n"
+                                f"- 50th: {np.percentile(final_prediction['continuous_cdf'], 50):.2f}\n"
+                                f"- 75th: {np.percentile(final_prediction['continuous_cdf'], 75):.2f}"
                             )
                         else:  # multiple_choice
-                            probs = forecast_payload["prediction_probs"]
+                            probs = final_prediction["prediction_probs"]
                             probs_text = "\n".join([f"{option}: {prob*100:.2f}%" for option, prob in probs.items()])
                             comment = f"Summary of prediction:\n\n{summary}\n\nFinal predictions:\n{probs_text}"
                         
+                        # Post comment using post_id
                         post_question_comment(question_id, comment)
                         logging.info(f"Successfully submitted prediction for question {question_id}")
-        
-        else:
-            logging.warning(f"No valid predictions generated for question {question_id}")
+            
+            else:
+                logging.warning(f"No valid predictions generated for question {question_id}")
 
+        except Exception as e:
+            logging.error(f"Error processing question {question_id}: {str(e)}")
+            continue
+        
+        # Sleep to avoid rate limiting
         time.sleep(2)
 
 if __name__ == "__main__":
     main()
-
