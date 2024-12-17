@@ -301,10 +301,10 @@ def get_binary_gpt_prediction(question_details, formatted_articles):
         except requests.RequestException as e:
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
-                logging.warning(f"GPT API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                logging.warning(f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
                 time.sleep(delay)
             else:
-                logging.error(f"GPT API error persisted after {max_retries} retries: {e}")
+                logging.error(f"OpenAI API error persisted after {max_retries} retries: {e}")
                 return None
 
 def get_binary_claude_prediction(question_details, formatted_articles):
@@ -352,10 +352,10 @@ def get_binary_claude_prediction(question_details, formatted_articles):
         except requests.RequestException as e:
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
-                logging.warning(f"Claude API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                logging.warning(f"Anthropic API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
                 time.sleep(delay)
             else:
-                logging.error(f"Claude API error persisted after {max_retries} retries: {e}")
+                logging.error(f"Anthropic API error persisted after {max_retries} retries: {e}")
                 return None
 
 # Find all numbers followed by a '%'
@@ -436,10 +436,10 @@ def get_numeric_claude_prediction(question_details, formatted_articles):
         except requests.RequestException as e:
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
-                logging.warning(f"Claude API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                logging.warning(f"Anthropic API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
                 time.sleep(delay)
             else:
-                logging.error(f"Claude API error persisted after {max_retries} retries: {e}")
+                logging.error(f"Anthropic API error persisted after {max_retries} retries: {e}")
                 return None, None
 
 def get_multiple_choice_claude_prediction(question_details, formatted_articles):
@@ -497,10 +497,10 @@ def get_multiple_choice_claude_prediction(question_details, formatted_articles):
         except requests.RequestException as e:
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
-                logging.warning(f"Claude API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                logging.warning(f"Anthropic API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
                 time.sleep(delay)
             else:
-                logging.error(f"Claude API error persisted after {max_retries} retries: {e}")
+                logging.error(f"Anthropic API error persisted after {max_retries} retries: {e}")
                 return None, None
 
 def normalize_list(float_list):
@@ -548,7 +548,6 @@ def get_numeric_gpt_prediction(question_details, formatted_articles):
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status()
             response_data = response.json()
-            logging.info(f"GPT API response: {response_data}")
             gpt_text = response_data['choices'][0]['message']['content']
             
             percentile_values = extract_percentiles_from_response(gpt_text)
@@ -566,10 +565,10 @@ def get_numeric_gpt_prediction(question_details, formatted_articles):
         except requests.RequestException as e:
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
-                logging.warning(f"GPT API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                logging.warning(f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
                 time.sleep(delay)
             else:
-                logging.error(f"GPT API error persisted after {max_retries} retries: {e}")
+                logging.error(f"OpenAI API error persisted after {max_retries} retries: {e}")
                 return None, None
 
 def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
@@ -625,11 +624,11 @@ def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
         except requests.RequestException as e:
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
-                logging.warning(f"GPT API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                logging.warning(f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
                 logging.error(f"Response content: {e.response.text if hasattr(e, 'response') else 'No response'}")
                 time.sleep(delay)
             else:
-                logging.error(f"GPT API error persisted after {max_retries} retries: {e}")
+                logging.error(f"OpenAI API error persisted after {max_retries} retries: {e}")
                 return None, None
 
 def extract_percentiles_from_response(forecast_text: str) -> float:
@@ -1065,7 +1064,7 @@ def calculate_final_prediction(results, question_details):
     
     return None
 
-SUBMIT_PREDICTION = False
+SUBMIT_PREDICTION = True
 
 #Submitting a forecast
 def main():
