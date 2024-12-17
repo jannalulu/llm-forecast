@@ -8,11 +8,10 @@ from asknews_sdk.errors import APIError
 import sys
 import logging
 import datetime
+import numpy as np
 from dotenv import load_dotenv
 from anthropic import Anthropic
-from prompts import BINARY_PROMPT
-from prompts import NUMERIC_PROMPT
-
+from prompts import BINARY_PROMPT, NUMERIC_PROMPT, MULTIPLE_CHOICE_PROMPT
 
 load_dotenv()
 
@@ -38,7 +37,7 @@ ASKNEWS_SECRET = os.environ.get('ASKNEWS_SECRET')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
-API_BASE_URL = "https://www.metaculus.com/api2"
+API_BASE_URL = "https://www.metaculus.com/api"
 TOURNAMENT_ID = 32506
 
 # List questions and details
@@ -141,15 +140,18 @@ def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
         "offset": offset,
         "has_group": "false",
         "order_by": "-activity",
-        "forecast_type": "binary",
-        "project": tournament_id,
-        "status": "open",
-        "type": "forecast",
+        "forecast_type": ",".join([
+            "binary",
+            "multiple_choice",
+            "numeric",
+        ]),
+        "tournaments": [tournament_id],
+        "statuses": "open",
         "include_description": "true",
     }
     if count is not None:
         url_qparams["limit"] = count
-    url = f"{API_BASE_URL}/questions/"
+    url = f"{API_BASE_URL}/posts/"
     response = requests.get(url, **AUTH_HEADERS, params=url_qparams)
     response.raise_for_status()
     data = json.loads(response.content)
@@ -266,7 +268,7 @@ def get_summary_from_gpt(all_runs_text):
         print(f"Error getting summary: {e}")
         return None
 
-def get_gpt_prediction(question_details, formatted_articles):
+def get_binary_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     # client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -291,7 +293,7 @@ def get_gpt_prediction(question_details, formatted_articles):
         "messages": [
             {
                 "role": "user",
-                "content": PROMPT_TEMPLATE.format(**prompt_input)
+                "content": BINARY_PROMPT.format(**prompt_input)
             }
         ]
     }
@@ -315,7 +317,7 @@ def get_gpt_prediction(question_details, formatted_articles):
                 logging.error(f"GPT API error persisted after {max_retries} retries: {e}")
                 return None
 
-def get_claude_prediction(question_details, formatted_articles):
+def get_binary_claude_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     prompt_input = {
         "title": question_details["question"]["title"],
@@ -340,7 +342,7 @@ def get_claude_prediction(question_details, formatted_articles):
         "messages": [
             {
                 "role": "user",
-                "content": PROMPT_TEMPLATE.format(**prompt_input)
+                "content": BINARY_PROMPT.format(**prompt_input)
             }
         ]
     }
@@ -404,10 +406,11 @@ def post_question_comment(question_id, comment_text):
     response = requests.post(
         f"{API_BASE_URL}/comments/create",
         json={
-            "comment_text": comment_text,
-            "submit_type": "N",
-            "include_latest_prediction": True,
-            "question": question_id,
+            "text": comment_text,
+            "parent": None,
+            "included_forecast": True,
+            "is_private": True,
+            "on_post": question_id,
         },
         **AUTH_HEADERS,
     )
@@ -420,7 +423,12 @@ def post_question_prediction(question_id, prediction_percentage):
     url = f"{API_BASE_URL}/questions/{question_id}/predict/"
     response = requests.post(
         url,
-        json={"prediction": float(prediction_percentage) / 100},
+        json=[
+            {
+                "question": question_id,
+                **forecast,
+            },
+        ],
         **AUTH_HEADERS,
     )
     response.raise_for_status()
@@ -472,7 +480,8 @@ def get_question_details(question_id):
     """
     Get all details about a specific question.
     """
-    url = f"{API_BASE_URL}/questions/{question_id}/"
+    url = f"{API_BASE_URL}/posts/{question_id}/"
+    print(url)
     response = requests.get(
         url,
         **AUTH_HEADERS,
@@ -483,11 +492,13 @@ def get_question_details(question_id):
 SUBMIT_PREDICTION = False
 
 #GPT prediction and submitting a forecast
+    else:
 
 for question_id in open_questions_ids:
     print(f"Question id: {question_id}\n\n")
     question_details = get_question_details(question_id)
     print("Question details:\n\n", question_details)
+    
 
     formatted_articles = get_formatted_asknews_context(question_details["title"])
     log_question_news(question_id, formatted_articles, question_details["question"]["title"])
@@ -495,11 +506,12 @@ for question_id in open_questions_ids:
     claude_probabilities = []
     gpt_texts = []
     claude_texts = []
+def calculate_final_prediction(results, question_details):
     
     for run in range(5):
         print(f"Run {run} for question {question_id}")
+    if question_type == "binary":
         
-        gpt_result = get_gpt_prediction(question_details, formatted_articles)
         claude_result = get_claude_prediction(question_details, formatted_articles)
         
         if gpt_result:
@@ -510,7 +522,6 @@ for question_id in open_questions_ids:
         log_question_reasoning(question_id, gpt_result, question_details["question"]["title"], "gpt", run)
         log_question_reasoning(question_id, claude_result, question_details["question"]["title"], "claude", run)
 
-        gpt_probability = extract_probability(gpt_result)
         claude_probability = extract_probability(claude_result)
         
         if gpt_probability is not None:
@@ -527,18 +538,15 @@ for question_id in open_questions_ids:
         logging.info(f"Claude probabilities: {claude_probabilities}")
         logging.info(f"Claude average: {claude_avg}%")
         logging.info(f"Overall average: {average_probability}%")
-
         # Get summary of all runs
         summary_prompt = f"Analyze and summarize these forecasting runs:\n\nFirst group of runs:\n{gpt_result}\n\nSecond group of runs:\n{claude_result}\n\nProbabilities from all runs: {gpt_probabilities + claude_probabilities}. Write out the probabilities of all the runs in one sentence. Keep your summary of the key points that each forecast brought up in under 150 words."
         
         summary_data = {
-            "model": "gpt-4o",
             "messages": [{"role": "user", "content": summary_prompt}]
         }
         
         url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
         headers = {
-            "Authorization": f"Token {METACULUS_TOKEN}",
             "Content-Type": "application/json"
         }
         
@@ -552,15 +560,16 @@ for question_id in open_questions_ids:
                 "question_title": question_details["question"]["title"],
                 "summary": summary
             }
+        for option in all_options:
             
             today = datetime.datetime.now().strftime('%Y%m%d')
             json_filename = f"logs/reasoning_{today}.json"
+        
             
             try:
                 if os.path.exists(json_filename):
                     with open(json_filename, 'r', encoding='utf-8') as json_file:
                         existing_data = json.load(json_file)
-                else:
                     existing_data = []
                 
                 existing_entry = next((item for item in existing_data if item["question_id"] == question_id), None)
@@ -572,9 +581,11 @@ for question_id in open_questions_ids:
                         "question_title": question_details["question"]["title"],
                         "summary": summary
                     })
+                    claude_texts.append(claude_result)
                 
                 with open(json_filename, 'w', encoding='utf-8') as json_file:
                     json.dump(existing_data, json_file, ensure_ascii=False, indent=2)
+                if gpt_result and claude_result:
                     
             except Exception as e:
                 logging.error(f"Error writing summary to {json_filename}: {str(e)}")
