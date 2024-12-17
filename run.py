@@ -2,6 +2,7 @@ import json
 import os
 import requests
 import re
+import scipy
 from asknews_sdk import AskNewsSDK
 import time
 from asknews_sdk.errors import APIError
@@ -590,73 +591,93 @@ def extract_percentiles_from_response(forecast_text: str) -> float:
             f"Could not extract prediction from response: {forecast_text}"
         )
     
-def generate_continuous_cdf(percentile_values, question_type, open_upper_bound, open_lower_bound, scaling):
-    percentile_max = max(float(key) for key in percentile_values.keys())
-    percentile_min = min(float(key) for key in percentile_values.keys())
-    range_min = float(scaling.get("range_min"))
-    range_max = float(scaling.get("range_max"))
-
-    if open_upper_bound:
-        if range_max > percentile_values[percentile_max]:
-           percentile_values[int(100 - (0.5 * (100 - percentile_max)))] = range_max
-    else:
-        percentile_values[100] = range_max
-
+def generate_continuous_cdf(
+    percentile_values: dict,
+    question_type: str,
+    open_upper_bound: bool,
+    open_lower_bound: bool,
+    scaling: dict,
+    use_monotonic_cubic: bool = False
+) -> list[float]:
+    """
+    Generate a 201-point CDF using piecewise linear interpolation between percentile points.
+    
+    Args:
+        percentile_values: Dictionary mapping percentiles (0-100) to values
+        question_type: Type of question (unused but kept for compatibility)
+        open_upper_bound: Whether the upper bound is open
+        open_lower_bound: Whether the lower bound is open
+        scaling: Dictionary containing range_min, range_max, and zero_point
+        use_monotonic_cubic: Whether to use monotonic cubic interpolation instead of linear
+    
+    Returns:
+        list[float]: 201 CDF points evenly spaced in [0, 1]
+    """
+    from scipy.interpolate import PchipInterpolator
+    
+    # Convert to [0, 1] scale
+    range_min = float(scaling['range_min'])
+    range_max = float(scaling['range_max'])
+    
+    def scale_to_unit(x):
+        """Convert from nominal scale to [0, 1] scale"""
+        return (x - range_min) / (range_max - range_min)
+    
+    # Create the base points for interpolation
+    points = []
+    
+    # Add lower bound with proper handling
     if open_lower_bound:
-        if range_min < percentile_values[percentile_min]:
-           percentile_values[int(0.5 * percentile_min)] = range_min
+        points.append((0.0, 0.001))  # Minimum allowed value for open lower bound
     else:
-        percentile_values[0] = range_min
-
-    sorted_percentile_values = dict(sorted(percentile_values.items()))
-    normalized_percentile_values = {}
-    for key, value in sorted_percentile_values.items():
-        percentile = float(key) / 100
-        normalized_percentile_values[percentile] = value
-
-    value_percentiles = {value: key for key, value in normalized_percentile_values.items()}
-    zero_point = scaling.get("zero_point")
-
-    def generate_cdf_locations(range_min, range_max, zero_point):
-        if zero_point is None:
-            scale = lambda x: range_min + (range_max - range_min) * x
-        else:
-            deriv_ratio = (range_max - zero_point) / (range_min - zero_point)
-            scale = lambda x: range_min + (range_max - range_min) * (
-                deriv_ratio**x - 1
-            ) / (deriv_ratio - 1)
-        return [scale(x) for x in np.linspace(0, 1, 201)]
-
-    cdf_xaxis = generate_cdf_locations(range_min, range_max, zero_point)
-
-    def linear_interpolation(x_values, xy_pairs):
-        sorted_pairs = sorted(xy_pairs.items())
-        known_x = [pair[0] for pair in sorted_pairs]
-        known_y = [pair[1] for pair in sorted_pairs]
-        y_values = []
-
-        for x in x_values:
-            if x in known_x:
-                y_values.append(known_y[known_x.index(x)])
-            else:
-                i = 0
-                while i < len(known_x) and known_x[i] < x:
-                    i += 1
-
-                if i == 0:
-                    y_values.append(known_y[0])
-                elif i == len(known_x):
-                    y_values.append(known_y[-1])
-                else:
-                    x0, x1 = known_x[i-1], known_x[i]
-                    y0, y1 = known_y[i-1], known_y[i]
-                    y = y0 + (x - x0) * (y1 - y0) / (x1 - x0)
-                    y_values.append(y)
-
-        return y_values
-
-    continuous_cdf = linear_interpolation(cdf_xaxis, value_percentiles)
-    return continuous_cdf
+        points.append((0.0, 0.0))
+    
+    # Add all percentile points
+    for percentile, value in sorted(percentile_values.items()):
+        # Clamp value to valid range
+        value = max(min(value, range_max), range_min)
+        # Convert to [0, 1] scale
+        x = scale_to_unit(value)
+        y = percentile / 100
+        points.append((x, y))
+    
+    # Add upper bound with proper handling
+    if open_upper_bound:
+        points.append((1.0, 0.998))  # Maximum allowed value for open upper bound
+    else:
+        points.append((1.0, 1.0))
+    
+    # Sort points by x coordinate
+    points.sort(key=lambda p: p[0])
+    
+    x_points = [p[0] for p in points]
+    y_points = [p[1] for p in points]
+    
+    # Generate 201 evenly spaced points in [0, 1]
+    x_eval = np.linspace(0, 1, 201)
+    
+    if use_monotonic_cubic and len(points) >= 4:
+        # Use monotonic cubic interpolation for smoother results
+        interpolator = PchipInterpolator(x_points, y_points)
+        cdf_values = interpolator(x_eval)
+        # Ensure bounds are respected
+        cdf_values = np.clip(cdf_values, 0.001 if open_lower_bound else 0.0, 
+                                       0.998 if open_upper_bound else 1.0)
+    else:
+        # Use linear interpolation
+        cdf_values = np.interp(x_eval, x_points, y_points)
+    
+    # Ensure minimum spacing of 0.00005 between points while maintaining monotonicity
+    for i in range(1, len(cdf_values)):
+        cdf_values[i] = max(cdf_values[i], cdf_values[i-1] + 0.00005)
+    
+    # Final validation of bounds
+    if open_lower_bound:
+        cdf_values[0] = max(0.001, cdf_values[0])
+    if open_upper_bound:
+        cdf_values[-1] = min(0.998, cdf_values[-1])
+    
+    return cdf_values.tolist()
 
 def extract_option_probabilities_from_response(forecast_text, options):
     number_pattern = r'-?\d+(?:,\d{3})*(?:\.\d+)?'
@@ -783,6 +804,7 @@ def post_question_prediction(question_id: int, forecast_payload: dict) -> None:
     
 def log_predictions_json(post_id, question_title, gpt_results, claude_results, gpt_texts, claude_texts, average_probability):
     """Log predictions and reasoning to a JSON file."""
+    today = datetime.datetime.now().strftime('%Y%m%d')
     json_filename = "logs/reasoning_{today}.json"
     
     prediction_data = {
@@ -852,33 +874,64 @@ def generate_x_values(question_details):
         return [range_min + (range_max - range_min) * (deriv_ratio**x - 1) / (deriv_ratio - 1) 
                 for x in np.linspace(0, 1, 201)]
 
-def combine_cdfs(cdf1, cdf2, x_values):
+def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound=True, open_lower_bound=True):
     """
-    Combine two CDFs to create a single prediction, with proper handling of probabilities.
+    Combine two CDFs to create a single prediction, with proper handling of bounds and scaling.
     
     Args:
         cdf1: First CDF array (from GPT-4)
         cdf2: Second CDF array (from Claude)
         x_values: The actual x-axis values these CDFs correspond to
+        open_upper_bound: Whether the upper bound is open
+        open_lower_bound: Whether the lower bound is open
         
     Returns:
         combined_cdf: Array of 201 points representing the combined CDF
     """
+    import numpy as np
+    
+    # Ensure arrays are numpy arrays
+    cdf1 = np.array(cdf1)
+    cdf2 = np.array(cdf2)
+    
     # Convert CDFs to PDFs by taking differences
-    pdf1 = np.diff(cdf1, prepend=0)
-    pdf2 = np.diff(cdf2, prepend=0)
+    pdf1 = np.diff(cdf1, prepend=cdf1[0])
+    pdf2 = np.diff(cdf2, prepend=cdf2[0])
     
     # Average the PDFs
     combined_pdf = (pdf1 + pdf2) / 2
     
-    # Normalize the combined PDF
-    combined_pdf = combined_pdf / combined_pdf.sum()
-    
     # Convert back to CDF
     combined_cdf = np.cumsum(combined_pdf)
     
-    # Ensure the CDF is properly normalized
+    # Normalize to [0,1] range before applying bounds
     combined_cdf = combined_cdf / combined_cdf[-1]
+    
+    # Rescale to respect bounds
+    if open_upper_bound and open_lower_bound:
+        # Scale to [0.001, 0.997] range
+        combined_cdf = 0.001 + (0.996 * combined_cdf)
+    elif open_upper_bound:
+        # Scale to [0, 0.997] range
+        combined_cdf = 0.997 * combined_cdf
+    elif open_lower_bound:
+        # Scale to [0.001, 1] range
+        combined_cdf = 0.001 + (0.999 * combined_cdf)
+        
+    # Ensure monotonicity and minimum spacing
+    for i in range(1, len(combined_cdf)):
+        combined_cdf[i] = max(combined_cdf[i], combined_cdf[i-1] + 0.00005)
+    
+    # Final validation
+    if open_upper_bound:
+        combined_cdf[-1] = min(0.997, combined_cdf[-1])
+    else:
+        combined_cdf[-1] = 1.0
+        
+    if open_lower_bound:
+        combined_cdf[0] = max(0.001, combined_cdf[0])
+    else:
+        combined_cdf[0] = 0.0
     
     return combined_cdf.tolist()
 
