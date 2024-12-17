@@ -43,10 +43,10 @@ TOURNAMENT_ID = 32506
 
 # List questions and details
 
-def setup_question_logger(question_id, log_type):
+def setup_question_logger(post_id, log_type):
     """Set up a logger for a specific question and log type."""
-    log_filename = f"logs/{question_id}_{log_type}.log"
-    logger = logging.getLogger(f"{question_id}_{log_type}")
+    log_filename = f"logs/{post_id}_{log_type}.log"
+    logger = logging.getLogger(f"{post_id}_{log_type}")
     logger.setLevel(logging.INFO)
     file_handler = logging.FileHandler(log_filename, mode='a', encoding='utf-8')
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -54,18 +54,18 @@ def setup_question_logger(question_id, log_type):
     logger.addHandler(file_handler)
     return logger
 
-def log_question_reasoning(question_id, reasoning, question_title, model_name, run_number):
+def log_question_reasoning(post_id, reasoning, question_title, model_name, run_number):
     """Log the reasoning for a specific question and run."""
-    logger = setup_question_logger(question_id, "reasoning")
+    logger = setup_question_logger(post_id, "reasoning")
     logger.info(f"Question: {question_title}")
-    logger.info(f"Reasoning for question {question_id}:\n{reasoning}")
+    logger.info(f"Reasoning for question {post_id}:\n{reasoning}")
     
     # JSON logging
     today = datetime.datetime.now().strftime('%Y%m%d')
     json_filename = f"logs/reasoning_{today}.json"
     
     question_data = {
-        "question_id": question_id,
+        "question_id": post_id,
         "question_title": question_title,
         f"{model_name}_reasoning{run_number}": reasoning
     }
@@ -79,7 +79,7 @@ def log_question_reasoning(question_id, reasoning, question_title, model_name, r
             existing_data = []
         
         # Update existing entry or add new one
-        existing_entry = next((item for item in existing_data if item["question_id"] == question_id), None)
+        existing_entry = next((item for item in existing_data if item["question_id"] == post_id), None)
         if existing_entry:
             existing_entry.update(question_data)
         else:
@@ -92,19 +92,19 @@ def log_question_reasoning(question_id, reasoning, question_title, model_name, r
     except Exception as e:
         logger.error(f"Error writing to {json_filename}: {str(e)}")
 
-def log_question_news(question_id, news, question_title):
+def log_question_news(post_id, news, question_title):
     """Log the news articles for a specific question."""
     # Standard logging
-    logger = setup_question_logger(question_id, "news")
+    logger = setup_question_logger(post_id, "news")
     logger.info(f"Question: {question_title}")
-    logger.info(f"News articles for question {question_id}:\n{news}")
+    logger.info(f"News articles for question {post_id}:\n{news}")
     
     # JSON logging
     today = datetime.datetime.now().strftime('%Y%m%d')
     json_filename = f"logs/news_{today}.json"
     
     news_data = {
-        "question_id": question_id,
+        "question_id": post_id,
         "question_title": question_title,
         "news": news
     }
@@ -118,7 +118,7 @@ def log_question_news(question_id, news, question_title):
             existing_data = []
         
         # Update existing entry or add new one
-        existing_entry = next((item for item in existing_data if item["question_id"] == question_id), None)
+        existing_entry = next((item for item in existing_data if item["question_id"] == post_id), None)
         if existing_entry:
             existing_entry.update(news_data)
         else:
@@ -573,29 +573,51 @@ def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
 
 # Parsing the response
 
-def extract_percentiles_from_response(forecast_text):
-    pattern = r'^.*(?:P|p)ercentile.*$'
-    number_pattern = r'-?\d+(?:,\d{3})*(?:\.\d+)?'
-    results = []
+def extract_percentiles_from_response(forecast_text: str) -> float:
 
-    for line in forecast_text.split('\n'):
-        if re.match(pattern, line):
-            numbers = re.findall(number_pattern, line)
-            numbers_no_commas = [num.replace(',', '') for num in numbers]
-            numbers = [float(num) if '.' in num else int(num) for num in numbers_no_commas]
-            if len(numbers) > 1:
-                first_number = numbers[0]
-                last_number = numbers[-1]
-                tup = [first_number, last_number]
-                results.append(tuple(tup))
+    # Helper function that returns a list of tuples with numbers for all lines with Percentile
+    def extract_percentile_numbers(text):
+        # Regular expression pattern
+        pattern = r'^.*(?:P|p)ercentile.*$'
 
-    percentile_values = {}
-    for first_num, second_num in results:
-        key = first_num
-        percentile_values[key] = second_num
+        # Number extraction pattern
+        number_pattern = r'-?\d+(?:,\d{3})*(?:\.\d+)?'
 
-    return percentile_values
+        results = []
 
+        # Iterate through each line in the text
+        for line in text.split('\n'):
+            # Check if the line contains "Percentile" or "percentile"
+            if re.match(pattern, line):
+                # Extract all numbers from the line
+                numbers = re.findall(number_pattern, line)
+                numbers_no_commas = [num.replace(',', '') for num in numbers]
+                # Convert strings to float or int
+                numbers = [float(num) if '.' in num else int(num) for num in numbers_no_commas]
+                # Add the tuple of numbers to results
+                if len(numbers) > 1:
+                  first_number = numbers[0]
+                  last_number = numbers[-1]
+                  tup = [first_number, last_number]
+                  results.append(tuple(tup))
+
+        # Convert results to dictionary
+        percentile_values = {}
+        for first_num, second_num in results:
+            key = first_num
+            percentile_values[key] = second_num
+
+        return percentile_values
+
+    percentile_values = extract_percentile_numbers(forecast_text)
+
+    if len(percentile_values) > 0:
+        return percentile_values
+    else:
+        raise ValueError(
+            f"Could not extract prediction from response: {forecast_text}"
+        )
+    
 def generate_continuous_cdf(percentile_values, question_type, open_upper_bound, open_lower_bound, scaling):
     percentile_max = max(float(key) for key in percentile_values.keys())
     percentile_min = min(float(key) for key in percentile_values.keys())
@@ -681,47 +703,93 @@ def extract_option_probabilities_from_response(forecast_text, options):
     else:
         raise ValueError(f"Could not extract prediction from response: {forecast_text}")
 
-def post_question_comment(question_id, comment_text):
+def post_question_comment(post_id, comment_text):
     """
     Post a comment on the question page as the bot user.
     """
     response = requests.post(
-        f"{API_BASE_URL}/comments/create",
+        f"{API_BASE_URL}/comments/create/",
         json={
             "text": comment_text,
             "parent": None,
             "included_forecast": True,
             "is_private": True,
-            "on_post": question_id,
+            "on_post": post_id,
         },
         **AUTH_HEADERS,
     )
     response.raise_for_status()
 
-def post_question_prediction(question_id, forecast):
+def create_forecast_payload(
+    forecast: float | dict[str, float] | list[float],
+    question_type: str,
+) -> dict:
+    """
+    Accepts a forecast and generates the api payload in the correct format.
+
+    Args:
+        forecast: The prediction value(s)
+            - For binary: float probability (0-1)
+            - For multiple choice: dict mapping options to probabilities
+            - For numeric: list of 201 CDF values
+        question_type: The type of question ("binary", "multiple_choice", or "numeric")
+        
+    Returns:
+        dict: Properly formatted payload for the Metaculus API
+    """
+    if question_type == "binary":
+        return {
+            "probability_yes": forecast,
+            "probability_yes_per_category": None,
+            "continuous_cdf": None,
+        }
+    if question_type == "multiple_choice":
+        return {
+            "probability_yes": None,
+            "probability_yes_per_category": forecast,
+            "continuous_cdf": None,
+        }
+    # numeric or date
+    return {
+        "probability_yes": None,
+        "probability_yes_per_category": None,
+        "continuous_cdf": forecast,
+    }
+
+def post_question_prediction(question_id: int, forecast_payload: dict) -> None:
     """
     Post a prediction on the question.
+    
+    Args:
+        question_id: The Metaculus question ID (not post ID)
+        forecast_payload: The prediction payload from create_forecast_payload()
     """
     url = f"{API_BASE_URL}/questions/forecast/"
+    
+    # API expects a list of forecasts
     response = requests.post(
         url,
         json=[
             {
                 "question": question_id,
-                **forecast,
+                **forecast_payload,
             },
         ],
         **AUTH_HEADERS,
     )
-    response.raise_for_status()
-
-
-def log_predictions_json(question_id, question_title, gpt_results, claude_results, gpt_texts, claude_texts, average_probability):
+    
+    logging.info(f"Response status: {response.status_code}")
+    if not response.ok:
+        logging.error(f"API Error: {response.status_code}")
+        logging.error(f"Response content: {response.text}")
+        raise Exception(response.text)
+    
+def log_predictions_json(post_id, question_title, gpt_results, claude_results, gpt_texts, claude_texts, average_probability):
     """Log predictions and reasoning to a JSON file."""
     json_filename = "logs/reasoning_{today}.json"
     
     prediction_data = {
-        "question_id": question_id,
+        "question_id": post_id,
         "question_title": question_title,
         "timestamp": datetime.datetime.now().isoformat(),
         "runs": [],
@@ -745,7 +813,7 @@ def log_predictions_json(question_id, question_title, gpt_results, claude_result
             existing_data = []
             
         # Update existing entry or add new one
-        existing_entry = next((item for item in existing_data if item["question_id"] == question_id), None)
+        existing_entry = next((item for item in existing_data if item["question_id"] == post_id), None)
         if existing_entry:
             existing_entry.update(prediction_data)
         else:
@@ -754,15 +822,15 @@ def log_predictions_json(question_id, question_title, gpt_results, claude_result
         with open(json_filename, 'w', encoding='utf-8') as json_file:
             json.dump(existing_data, json_file, ensure_ascii=False, indent=2)
             
-        logging.info(f"Successfully logged predictions for question {question_id} to {json_filename}")
+        logging.info(f"Successfully logged predictions for question {post_id} to {json_filename}")
     except Exception as e:
         logging.error(f"Error writing to {json_filename}: {str(e)}")
 
-def get_question_details(question_id):
+def get_question_details(post_id):
     """
     Get all details about a specific question.
     """
-    url = f"{API_BASE_URL}/posts/{question_id}/"
+    url = f"{API_BASE_URL}/posts/{post_id}/"
     print(url)
     response = requests.get(
         url,
@@ -867,110 +935,129 @@ SUBMIT_PREDICTION = True
 
 #Submitting a forecast
 def main():
-    questions = list_questions()
-    open_questions_ids = []
+    """Main function to process questions and submit forecasts."""
+    posts = list_questions()
+    
+    # Create mapping of post IDs to questions
+    post_dict = {}
+    for post in posts["results"]:
+        if question := post.get("question"):
+            post_dict[post["id"]] = [question]
+            logging.info(f'Post ID: {post["id"]}, Question ID: {post["question"]["id"]}')
 
-    for question in questions["results"]:
-        if question["status"] == "open":
-            print(f"ID: {question['id']}\nQ: {question['title']}\nCloses: {question['scheduled_close_time']}")
-            open_questions_ids.append(question["id"])
-
-    for question_id in open_questions_ids:
-        print(f"Question id: {question_id}\n\n")
-        question_details = get_question_details(question_id)
-        print("Question details:\n\n", question_details)
-
-        formatted_articles = get_formatted_asknews_context(question_details["title"])
-        log_question_news(question_id, formatted_articles, question_details["question"]["title"])
-        
-        question_type = question_details["question"]["type"]
-        logging.info(f"Processing question type: {question_type}")
-        
-        gpt_results = []
-        claude_results = []
-        gpt_texts = []
-        claude_texts = []
-        
-        # Do 5 runs for binary, 1 for others
-        num_runs = 5 if question_type == "binary" else 1
-        for run in range(num_runs):
-            print(f"Run {run} for question {question_id}")
-            
-            if question_type == "binary":
-                gpt_result = get_binary_gpt_prediction(question_details, formatted_articles)
-                claude_result = get_binary_claude_prediction(question_details, formatted_articles)
-                
-                if gpt_result:
-                    gpt_probability = extract_probability(gpt_result)
-                    if gpt_probability is not None:
-                        gpt_results.append(gpt_probability)
-                    gpt_texts.append(gpt_result)
-                    
-                if claude_result:
-                    claude_probability = extract_probability(claude_result)
-                    if claude_probability is not None:
-                        claude_results.append(claude_probability)
-                    claude_texts.append(claude_result)
-                    
-            elif question_type == "numeric":
-                gpt_result, gpt_comment = get_numeric_gpt_prediction(question_details, formatted_articles)
-                claude_result, claude_comment = get_numeric_claude_prediction(question_details, formatted_articles)
-                
-                if gpt_result and claude_result:
-                    gpt_results.append(gpt_result)
-                    claude_results.append(claude_result)
-                    gpt_texts.append(gpt_comment)
-                    claude_texts.append(claude_comment)
-                    
-            elif question_type == "multiple_choice":
-                gpt_result, gpt_comment = get_multiple_choice_gpt_prediction(question_details, formatted_articles)
-                claude_result, claude_comment = get_multiple_choice_claude_prediction(question_details, formatted_articles)
-                
-                if gpt_result and claude_result:
-                    gpt_results.append(gpt_result)
-                    claude_results.append(claude_result)
-                    gpt_texts.append(gpt_comment)
-                    claude_texts.append(claude_comment)
-            
-            if gpt_result:
-                log_question_reasoning(question_id, gpt_texts[-1], question_details["question"]["title"], "gpt", run)
-            if claude_result:
-                log_question_reasoning(question_id, claude_texts[-1], question_details["question"]["title"], "claude", run)
-
-        # Process results based on question type
-        if gpt_results and claude_results:
-            # Use the proper prediction calculator
-            forecast_payload = calculate_final_prediction({
-                "type": question_type,
-                "gpt_results": gpt_results,
-                "claude_results": claude_results
-            }, question_details)
-
-            if forecast_payload:
-                # Get prediction summary
-                summary_prompt = (
-                    f"Analyze these forecasting runs for a {question_type} question:\n\n"
-                    f"GPT analysis:\n{gpt_texts[-1]}\n\n"
-                    f"Claude analysis:\n{claude_texts[-1]}\n\n"
+    # Get list of open questions with both post and question IDs
+    open_question_id_post_id = []  # [(question_id, post_id)]
+    print(open_question_id_post_id)
+    
+    for post_id, questions in post_dict.items():
+        for question in questions:
+            if question.get("status") == "open":
+                logging.info(
+                    f"ID: {question['id']}\nQ: {question['title']}\n"
+                    f"Closes: {question['scheduled_close_time']}"
                 )
+                open_question_id_post_id.append((question["id"], post_id))
+
+    # Process each open question
+    for question_id, post_id in open_question_id_post_id:
+        try:
+            logging.info(f"\nProcessing question ID: {question_id}, post ID: {post_id}")
+            
+            # Get question details using the post_id
+            question_details = get_question_details(post_id)
+            question_type = question_details["question"]["type"]
+            
+            # Get news context
+            formatted_articles = get_formatted_asknews_context(question_details["title"])
+            log_question_news(post_id, formatted_articles, question_details["question"]["title"])
+            
+            # Initialize results storage
+            gpt_results = []
+            claude_results = []
+            gpt_texts = []
+            claude_texts = []
+            
+            # Number of runs based on question type
+            num_runs = 5 if question_type == "binary" else 1
+            
+            # Process predictions for each run
+            for run in range(num_runs):
+                logging.info(f"Run {run + 1}/{num_runs}")
                 
-                if question_type == "numeric":
-                    # Add distribution information for numeric questions
-                    summary_prompt += (
-                        f"The final predicted distribution has these key points:\n"
-                        f"- Median (50th percentile): {np.percentile(forecast_payload['continuous_cdf'], 50):.2f}\n"
-                        f"- 25th percentile: {np.percentile(forecast_payload['continuous_cdf'], 25):.2f}\n"
-                        f"- 75th percentile: {np.percentile(forecast_payload['continuous_cdf'], 75):.2f}\n\n"
+                if question_type == "binary":
+                    # Binary predictions
+                    gpt_result = get_binary_gpt_prediction(question_details, formatted_articles)
+                    claude_result = get_binary_claude_prediction(question_details, formatted_articles)
+                    
+                    if gpt_result:
+                        gpt_prob = extract_probability(gpt_result)
+                        if gpt_prob is not None:
+                            gpt_results.append(gpt_prob)
+                        gpt_texts.append(gpt_result)
+                    
+                    if claude_result:
+                        claude_prob = extract_probability(claude_result)
+                        if claude_prob is not None:
+                            claude_results.append(claude_prob)
+                        claude_texts.append(claude_result)
+                
+                elif question_type == "numeric":
+                    # Numeric predictions
+                    gpt_result, gpt_comment = get_numeric_gpt_prediction(question_details, formatted_articles)
+                    claude_result, claude_comment = get_numeric_claude_prediction(question_details, formatted_articles)
+                    
+                    if gpt_result and claude_result:
+                        gpt_results.append(gpt_result)
+                        claude_results.append(claude_result)
+                        gpt_texts.append(gpt_comment)
+                        claude_texts.append(claude_comment)
+                
+                elif question_type == "multiple_choice":
+                    # Multiple choice predictions
+                    gpt_result, gpt_comment = get_multiple_choice_gpt_prediction(question_details, formatted_articles)
+                    claude_result, claude_comment = get_multiple_choice_claude_prediction(question_details, formatted_articles)
+                    
+                    if gpt_result and claude_result:
+                        gpt_results.append(gpt_result)
+                        claude_results.append(claude_result)
+                        gpt_texts.append(gpt_comment)
+                        claude_texts.append(claude_comment)
+                
+                # Log individual model results
+                if gpt_result:
+                    log_question_reasoning(post_id, gpt_texts[-1], question_details["question"]["title"], "gpt", run)
+                if claude_result:
+                    log_question_reasoning(post_id, claude_texts[-1], question_details["question"]["title"], "claude", run)
+
+            # Process and submit final prediction if we have results from both models
+            if gpt_results and claude_results:
+                # Calculate final prediction
+                results = {
+                    "type": question_type,
+                    "gpt_results": gpt_results,
+                    "claude_results": claude_results
+                }
+                final_prediction = calculate_final_prediction(results, question_details)
+                
+                if final_prediction:
+                    # Create the API payload
+                    forecast_payload = create_forecast_payload(
+                        final_prediction["prediction" if question_type == "binary" else 
+                                      "prediction_probs" if question_type == "multiple_choice" else 
+                                      "continuous_cdf"],
+                        question_type
                     )
-                
-                summary_prompt += "Keep your summary of the key points under 150 words."
-                
-                summary = get_summary_from_gpt(summary_prompt)
-                
-                if summary:
+                    
+                    # Get prediction summary
+                    summary = get_summary_from_gpt(
+                        f"Analyze these forecasting runs for a {question_type} question:\n\n"
+                        f"GPT analysis:\n{gpt_texts[-1]}\n\n"
+                        f"Claude analysis:\n{claude_texts[-1]}\n\n"
+                    )
+                    
                     # Log predictions
                     log_predictions_json(
-                        question_id,
+                        post_id,
                         question_details["question"]["title"],
                         gpt_results,
                         claude_results,
@@ -1002,14 +1089,14 @@ def main():
                             comment = f"Summary of prediction:\n\n{summary}\n\nFinal predictions:\n{probs_text}"
                         
                         # Post comment using post_id
-                        post_question_comment(question_id, comment)
-                        logging.info(f"Successfully submitted prediction for question {question_id}")
+                        post_question_comment(post_id, comment)
+                        logging.info(f"Successfully submitted prediction for question {post_id}")
             
             else:
-                logging.warning(f"No valid predictions generated for question {question_id}")
+                logging.warning(f"No valid predictions generated for question {post_id}")
 
         except Exception as e:
-            logging.error(f"Error processing question {question_id}: {str(e)}")
+            logging.error(f"Error processing question {post_id}: {str(e)}")
             continue
         
         # Sleep to avoid rate limiting
