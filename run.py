@@ -32,7 +32,7 @@ if len(args) > 1 and args[1] == "dryrun":
     exit(0)
 
 METACULUS_TOKEN = os.environ.get('METACULUS_TOKEN')
-# OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 ASKNEWS_CLIENT_ID = os.environ.get('ASKNEWS_CLIENT_ID')
 ASKNEWS_SECRET = os.environ.get('ASKNEWS_SECRET')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
@@ -242,34 +242,9 @@ def format_asknews_context(hot_articles, historical_articles):
 
 
 #GPT-4 predictions
-def get_summary_from_gpt(all_runs_text):
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-    max_retries = 10
-    base_delay = 1
-
-    for attempt in range(max_retries):
-        try:
-            response = client.chat.completions.create(
-                model='gpt-4o',
-                messages=[{
-                    "role": "user",
-                    "content": f"Please provide a concise summary of these forecasting runs, focusing on the key points of reasoning and how they led to the probabilities. You must include the probabilities from each run. Here are the runs:\n\n{all_runs_text}"
-                }]
-            )
-            summary_text=response.choices[0].message.content
-            return summary_text
-        except Exception as e:
-            if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                logging.warning(f"GPT API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
-                time.sleep(delay)
-            else:
-                logging.error(f"GPT API error persisted after {max_retries} retries: {e}")
-                return None
-
 def get_binary_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    client = OpenAI(api_key=OPENAI_API_KEY)
 
     prompt_input = {
         "title": question_details["question"]["title"],
@@ -305,7 +280,7 @@ def get_binary_gpt_prediction(question_details, formatted_articles):
 
 def get_binary_claude_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    client = Anthropic(api_key=ANTHROPIC_API_KEY)
     
     prompt_input = {
         "title": question_details["question"]["title"],
@@ -375,7 +350,7 @@ def get_numeric_claude_prediction(question_details, formatted_articles):
         "upper_bound_message": f"The outcome can not be higher than {question_details['question']['scaling']['range_max']}." if not question_details["question"]["open_upper_bound"] else ""
     }
 
-    client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    client = Anthropic(api_key=ANTHROPIC_API_KEY)
     
     max_retries = 10
     base_delay = 1
@@ -425,7 +400,7 @@ def get_multiple_choice_claude_prediction(question_details, formatted_articles):
         "options": question_details["question"]["options"]
     }
 
-    client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    client = Anthropic(api_key=ANTHROPIC_API_KEY)
     
     max_retries = 10
     base_delay = 1
@@ -484,7 +459,7 @@ def get_numeric_gpt_prediction(question_details, formatted_articles):
         "upper_bound_message": f"The outcome can not be higher than {question_details['question']['scaling']['range_max']}." if not question_details["question"]["open_upper_bound"] else ""
     }
 
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    client = OpenAI(api_key=OPENAI_API_KEY)
     
     max_retries = 10
     base_delay = 1
@@ -533,7 +508,7 @@ def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
         "options": question_details["question"]["options"]
     }
 
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    client = OpenAI(api_key=OPENAI_API_KEY)
     
     max_retries = 10
     base_delay = 1
@@ -569,9 +544,6 @@ def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
             else:
                 logging.error(f"GPT API error persisted after {max_retries} retries: {e}")
                 return None, None
-
-
-# Parsing the response
 
 def extract_percentiles_from_response(forecast_text: str) -> float:
 
@@ -702,6 +674,31 @@ def extract_option_probabilities_from_response(forecast_text, options):
         return results[-len(options):]
     else:
         raise ValueError(f"Could not extract prediction from response: {forecast_text}")
+
+def get_summary_from_gpt(all_runs_text):
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    max_retries = 10
+    base_delay = 1
+
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model='gpt-4o',
+                messages=[{
+                    "role": "user",
+                    "content": f"Please provide a concise summary of these forecasting runs, focusing on the key points of reasoning and how they led to the probabilities. You must include the probabilities from each run. Here are the runs:\n\n{all_runs_text}"
+                }]
+            )
+            summary_text=response.choices[0].message.content
+            return summary_text
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logging.warning(f"GPT API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                time.sleep(delay)
+            else:
+                logging.error(f"GPT API error persisted after {max_retries} retries: {e}")
+                return None
 
 def post_question_comment(post_id, comment_text):
     """
