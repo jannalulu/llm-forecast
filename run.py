@@ -55,8 +55,38 @@ def setup_question_logger(post_id, log_type):
     logger.addHandler(file_handler)
     return logger
 
+def update_json_log(filename, data, post_id):
+    """
+    Generic function to update JSON log files.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        # Read existing data if file exists
+        if os.path.exists(filename):
+            with open(filename, 'r', encoding='utf-8') as json_file:
+                existing_data = json.load(json_file)
+        else:
+            existing_data = []
+        
+        # Update existing entry or add new one
+        existing_entry = next((item for item in existing_data if item["question_id"] == post_id), None)
+        if existing_entry:
+            existing_entry.update(data)
+        else:
+            existing_data.append(data)
+        
+        # Write updated data
+        with open(filename, 'w', encoding='utf-8') as json_file:
+            json.dump(existing_data, json_file, ensure_ascii=False, indent=2)
+        return True
+            
+    except Exception as e:
+        logging.error(f"Error writing to {filename}: {str(e)}")
+        return False
+
 def log_question_reasoning(post_id, reasoning, question_title, model_name, run_number):
     """Log the reasoning for a specific question and run."""
+    # Standard logging
     logger = setup_question_logger(post_id, "reasoning")
     logger.info(f"Question: {question_title}")
     logger.info(f"Reasoning for question {post_id}:\n{reasoning}")
@@ -71,27 +101,33 @@ def log_question_reasoning(post_id, reasoning, question_title, model_name, run_n
         f"{model_name}_reasoning{run_number}": reasoning
     }
     
-    try:
-        # Read existing data if file exists
-        if os.path.exists(json_filename):
-            with open(json_filename, 'r', encoding='utf-8') as json_file:
-                existing_data = json.load(json_file)
-        else:
-            existing_data = []
-        
-        # Update existing entry or add new one
-        existing_entry = next((item for item in existing_data if item["question_id"] == post_id), None)
-        if existing_entry:
-            existing_entry.update(question_data)
-        else:
-            existing_data.append(question_data)
-        
-        # Write updated data
-        with open(json_filename, 'w', encoding='utf-8') as json_file:
-            json.dump(existing_data, json_file, ensure_ascii=False, indent=2)
-            
-    except Exception as e:
-        logger.error(f"Error writing to {json_filename}: {str(e)}")
+    update_json_log(json_filename, question_data, post_id)
+
+def log_predictions_json(post_id, question_title, gpt_results, claude_results, gpt_texts, claude_texts, average_probability):
+    """Log predictions and reasoning to a JSON file."""
+    today = datetime.datetime.now().strftime('%Y%m%d')
+    json_filename = f"logs/reasoning_{today}.json"
+    
+    prediction_data = {
+        "question_id": post_id,
+        "question_title": question_title,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "runs": [],
+        "average_probability": average_probability
+    }
+    
+    for i in range(len(gpt_results)):
+        prediction_data["runs"].append({
+            "run_number": i + 1,
+            "gpt_prediction": gpt_results[i],
+            "gpt_reasoning": gpt_texts[i],
+            "claude_prediction": claude_results[i],
+            "claude_reasoning": claude_texts[i]
+        })
+    
+    success = update_json_log(json_filename, prediction_data, post_id)
+    if success:
+        logging.info(f"Successfully logged predictions for question {post_id} to {json_filename}")
 
 def log_question_news(post_id, news, question_title):
     """Log the news articles for a specific question."""
@@ -109,28 +145,7 @@ def log_question_news(post_id, news, question_title):
         "question_title": question_title,
         "news": news
     }
-    
-    try:
-        # Read existing data if file exists
-        if os.path.exists(json_filename):
-            with open(json_filename, 'r', encoding='utf-8') as json_file:
-                existing_data = json.load(json_file)
-        else:
-            existing_data = []
-        
-        # Update existing entry or add new one
-        existing_entry = next((item for item in existing_data if item["question_id"] == post_id), None)
-        if existing_entry:
-            existing_entry.update(news_data)
-        else:
-            existing_data.append(news_data)
-        
-        # Write updated data
-        with open(json_filename, 'w', encoding='utf-8') as json_file:
-            json.dump(existing_data, json_file, ensure_ascii=False, indent=2)
-            
-    except Exception as e:
-        logger.error(f"Error writing to {json_filename}: {str(e)}")
+    update_json_log(json_filename, news_data, post_id)
 
 # Get questions from Metaculus
 def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
@@ -800,49 +815,6 @@ def post_question_prediction(question_id: int, forecast_payload: dict) -> None:
         logging.error(f"API Error: {response.status_code}")
         logging.error(f"Response content: {response.text}")
         raise Exception(response.text)
-    
-def log_predictions_json(post_id, question_title, gpt_results, claude_results, gpt_texts, claude_texts, average_probability):
-    """Log predictions and reasoning to a JSON file."""
-    today = datetime.datetime.now().strftime('%Y%m%d')
-    json_filename = "logs/reasoning_{today}.json"
-    
-    prediction_data = {
-        "question_id": post_id,
-        "question_title": question_title,
-        "timestamp": datetime.datetime.now().isoformat(),
-        "runs": [],
-        "average_probability": average_probability
-    }
-    
-    for i in range(len(gpt_results)):
-        prediction_data["runs"].append({
-            "run_number": i + 1,
-            "gpt_prediction": gpt_results[i],
-            "gpt_reasoning": gpt_texts[i],
-            "claude_prediction": claude_results[i],
-            "claude_reasoning": claude_texts[i]
-        })
-    
-    try:
-        if os.path.exists(json_filename):
-            with open(json_filename, 'r', encoding='utf-8') as json_file:
-                existing_data = json.load(json_file)
-        else:
-            existing_data = []
-            
-        # Update existing entry or add new one
-        existing_entry = next((item for item in existing_data if item["question_id"] == post_id), None)
-        if existing_entry:
-            existing_entry.update(prediction_data)
-        else:
-            existing_data.append(prediction_data)
-            
-        with open(json_filename, 'w', encoding='utf-8') as json_file:
-            json.dump(existing_data, json_file, ensure_ascii=False, indent=2)
-            
-        logging.info(f"Successfully logged predictions for question {post_id} to {json_filename}")
-    except Exception as e:
-        logging.error(f"Error writing to {json_filename}: {str(e)}")
 
 def get_question_details(post_id):
     """
