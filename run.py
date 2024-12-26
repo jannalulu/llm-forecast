@@ -162,7 +162,7 @@ def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
             "multiple_choice",
             "numeric",
         ]),
-        "tournaments": [tournament_id],
+        # "tournaments": [tournament_id],
         "statuses": "open",
         "include_description": "true",
     }
@@ -927,96 +927,92 @@ def generate_x_values(question_details):
 
 def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound, open_lower_bound):
     """
-    Combine two CDFs using a more robust method that preserves the distribution shape.
+    Combine two CDFs while respecting bounds constraints.
     
     Args:
-        cdf1: First CDF array (from GPT-4)
-        cdf2: Second CDF array (from Claude)
-        x_values: The actual x-axis values these CDFs correspond to
-        open_upper_bound: Whether the upper bound is open
-        open_lower_bound: Whether the lower bound is open
-        
-    Returns:
-        combined_cdf: Array of 201 points representing the combined CDF
+        cdf1, cdf2: Lists of 201 probability values (y-values of the CDF)
+        x_values: Array of corresponding x-axis values
+        open_upper_bound: Boolean indicating if upper bound is open
+        open_lower_bound: Boolean indicating if lower bound is open
     """
-    import numpy as np
-    from scipy.interpolate import PchipInterpolator
     
-    # Get percentiles from both CDFs
-    percentiles = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    # Generate percentile points (0 to 100)
+    percentiles = np.linspace(0, 100, 201)
     
-    def get_value_at_percentile(cdf, x_vals, percentile):
-        """Extract value at a given percentile from CDF"""
-        target = percentile / 100.0
-        # Find the first index where CDF exceeds target
+    def get_value_at_percentile(cdf, x_vals, p):
+        """Find the x-value where CDF reaches the given percentile."""
+        target = p / 100.0
+        
+        # Handle bounds
+        if target <= 0:
+            return x_vals[0]
+        if target >= 1:
+            return x_vals[-1]
+            
         idx = np.searchsorted(cdf, target)
+        
         if idx == 0:
             return x_vals[0]
-        if idx == len(cdf):
+        if idx >= len(cdf):
             return x_vals[-1]
-        # Interpolate between points
+            
+        # Linear interpolation
         x1, x2 = x_vals[idx-1], x_vals[idx]
         y1, y2 = cdf[idx-1], cdf[idx]
+        
+        if y2 == y1:
+            return x1
+            
         return x1 + (x2 - x1) * (target - y1) / (y2 - y1)
     
-    # Get values at percentiles for both CDFs
+    # Get values at each percentile for both CDFs
     values1 = [get_value_at_percentile(cdf1, x_values, p) for p in percentiles]
     values2 = [get_value_at_percentile(cdf2, x_values, p) for p in percentiles]
     
     # Average the values at each percentile
-    combined_values = [(v1 + v2) / 2 for v1, v2 in zip(values1, values2)]
+    averaged_values = [(v1 + v2)/2 for v1, v2 in zip(values1, values2)]
     
-    # Create points for interpolation
-    points = []
+    def get_cdf_probability(value, x_vals, averaged_vals, percentiles):
+        """Convert a value back to a CDF probability."""
+        if value <= averaged_vals[0]:
+            return 0.0 if not open_lower_bound else 0.001
+        if value >= averaged_vals[-1]:
+            return 1.0 if not open_upper_bound else 0.999
+            
+        idx = np.searchsorted(averaged_vals, value)
+        
+        if idx == 0:
+            return 0.0 if not open_lower_bound else 0.001
+        if idx >= len(averaged_vals):
+            return 1.0 if not open_upper_bound else 0.999
+            
+        # Linear interpolation using percentiles
+        x1, x2 = averaged_vals[idx-1], averaged_vals[idx]
+        p1, p2 = percentiles[idx-1]/100.0, percentiles[idx]/100.0
+        
+        if x2 == x1:
+            return p1
+            
+        return p1 + (p2 - p1) * (value - x1) / (x2 - x1)
     
-    # Handle lower bound
-    if not open_lower_bound:
-        points.append((x_values[0], 0.0))
-    else:
-        points.append((x_values[0], 0.001))
-    
-    # Add percentile points
-    for p, v in zip(percentiles[1:-1], combined_values[1:-1]):
-        points.append((v, p / 100.0))
-    
-    # Handle upper bound
-    if not open_upper_bound:
-        points.append((x_values[-1], 1.0))
-    else:
-        points.append((x_values[-1], 0.998))
-    
-    # Sort points and ensure strict monotonicity
-    points.sort(key=lambda p: p[0])
-    for i in range(1, len(points)):
-        if points[i][0] <= points[i-1][0]:
-            points[i] = (points[i-1][0] + 1e-10, points[i][1])
-    
-    # Create interpolator
-    x_points = [p[0] for p in points]
-    y_points = [p[1] for p in points]
-    
-    if len(points) >= 4:
-        interpolator = PchipInterpolator(x_points, y_points)
-        combined_cdf = interpolator(x_values)
-    else:
-        # Fall back to linear interpolation if too few points
-        combined_cdf = np.interp(x_values, x_points, y_points)
+    # Convert back to probabilities while respecting bounds
+    combined_cdf = [get_cdf_probability(x, x_values, averaged_values, percentiles) for x in x_values]
     
     # Ensure monotonicity and proper spacing
-    combined_cdf = np.clip(combined_cdf, 0.0, 1.0)
     for i in range(1, len(combined_cdf)):
         if i == len(combined_cdf) - 1 and not open_upper_bound:
             combined_cdf[i] = 1.0
         else:
             combined_cdf[i] = max(combined_cdf[i], combined_cdf[i-1] + 0.00005)
     
-    # Final validation of bounds
-    if not open_lower_bound:
-        combined_cdf[0] = 0.0
-    if not open_upper_bound:
-        combined_cdf[-1] = 1.0
-        
-    return combined_cdf.tolist()
+    # Handle bounds explicitly
+    combined_cdf[0] = 0.0 if not open_lower_bound else 0.001
+    combined_cdf[-1] = 1.0 if not open_upper_bound else 0.999
+    
+    # Final validation
+    combined_cdf = np.clip(combined_cdf, 0, 1)
+    
+    return np.array(combined_cdf).tolist()
 
 def calculate_final_prediction(results, question_details):
     """Calculate final prediction based on question type"""
@@ -1070,6 +1066,7 @@ SUBMIT_PREDICTION = True
 def main():
     """Main function to process questions and submit forecasts."""
     posts = list_questions()
+    # posts = {"results": [get_question_details(28845)]}
     
     # Create mapping of post IDs to questions
     post_dict = {}
