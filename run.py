@@ -927,61 +927,92 @@ def generate_x_values(question_details):
 
 def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound, open_lower_bound):
     """
-    Correctly combine two CDFs by averaging probabilities at each x value.
+    Combine two CDFs while respecting bounds constraints.
     
     Args:
-        cdf1: First CDF array (list of 201 probability values between 0-1)
-        cdf2: Second CDF array (list of 201 probability values between 0-1)
-        x_values: Array of x-axis values these CDFs correspond to
+        cdf1, cdf2: Lists of 201 probability values (y-values of the CDF)
+        x_values: Array of corresponding x-axis values
         open_upper_bound: Boolean indicating if upper bound is open
         open_lower_bound: Boolean indicating if lower bound is open
-        
-    Returns:
-        combined_cdf: Array of 201 probability values representing the combined CDF
     """
-    import numpy as np
     
-    # Verify inputs are valid
-    assert len(cdf1) == len(cdf2) == 201, "CDFs must have exactly 201 points"
-    assert all(0 <= p <= 1 for p in cdf1), "CDF1 values must be between 0 and 1"
-    assert all(0 <= p <= 1 for p in cdf2), "CDF2 values must be between 0 and 1"
+    # Generate percentile points (0 to 100)
+    percentiles = np.linspace(0, 100, 201)
     
-    # Convert to numpy arrays and clip values to [0,1] range
-    cdf1 = np.clip(np.array(cdf1), 0, 1)
-    cdf2 = np.clip(np.array(cdf2), 0, 1)
-    
-    # Add error logging
-    if not all(0 <= p <= 1 for p in cdf1):
-        logging.warning(f"CDF1 had values outside [0,1] range before clipping")
-    if not all(0 <= p <= 1 for p in cdf2):
-        logging.warning(f"CDF2 had values outside [0,1] range before clipping")
-    
-    # Average the probabilities at each x value and ensure they stay in [0,1]
-    combined_cdf = np.clip((cdf1 + cdf2) / 2, 0, 1)
-    
-    # Handle bounds according to question specifications
-    if not open_lower_bound:
-        combined_cdf[0] = 0.0
-    else:
-        combined_cdf[0] = 0.001  # Small non-zero probability for open bound
+    def get_value_at_percentile(cdf, x_vals, p):
+        """Find the x-value where CDF reaches the given percentile."""
+        target = p / 100.0
         
-    if not open_upper_bound:
-        combined_cdf[-1] = 1.0
-    else:
-        combined_cdf[-1] = 0.999  # Just below 1 for open bound
+        # Handle bounds
+        if target <= 0:
+            return x_vals[0]
+        if target >= 1:
+            return x_vals[-1]
+            
+        idx = np.searchsorted(cdf, target)
+        
+        if idx == 0:
+            return x_vals[0]
+        if idx >= len(cdf):
+            return x_vals[-1]
+            
+        # Linear interpolation
+        x1, x2 = x_vals[idx-1], x_vals[idx]
+        y1, y2 = cdf[idx-1], cdf[idx]
+        
+        if y2 == y1:
+            return x1
+            
+        return x1 + (x2 - x1) * (target - y1) / (y2 - y1)
+    
+    # Get values at each percentile for both CDFs
+    values1 = [get_value_at_percentile(cdf1, x_values, p) for p in percentiles]
+    values2 = [get_value_at_percentile(cdf2, x_values, p) for p in percentiles]
+    
+    # Average the values at each percentile
+    averaged_values = [(v1 + v2)/2 for v1, v2 in zip(values1, values2)]
+    
+    def get_cdf_probability(value, x_vals, averaged_vals, percentiles):
+        """Convert a value back to a CDF probability."""
+        if value <= averaged_vals[0]:
+            return 0.0 if not open_lower_bound else 0.001
+        if value >= averaged_vals[-1]:
+            return 1.0 if not open_upper_bound else 0.999
+            
+        idx = np.searchsorted(averaged_vals, value)
+        
+        if idx == 0:
+            return 0.0 if not open_lower_bound else 0.001
+        if idx >= len(averaged_vals):
+            return 1.0 if not open_upper_bound else 0.999
+            
+        # Linear interpolation using percentiles
+        x1, x2 = averaged_vals[idx-1], averaged_vals[idx]
+        p1, p2 = percentiles[idx-1]/100.0, percentiles[idx]/100.0
+        
+        if x2 == x1:
+            return p1
+            
+        return p1 + (p2 - p1) * (value - x1) / (x2 - x1)
+    
+    # Convert back to probabilities while respecting bounds
+    combined_cdf = [get_cdf_probability(x, x_values, averaged_values, percentiles) for x in x_values]
     
     # Ensure monotonicity and proper spacing
     for i in range(1, len(combined_cdf)):
         if i == len(combined_cdf) - 1 and not open_upper_bound:
             combined_cdf[i] = 1.0
         else:
-            # Each point should be at least slightly larger than the previous
             combined_cdf[i] = max(combined_cdf[i], combined_cdf[i-1] + 0.00005)
     
-    # Final validation
-    combined_cdf = np.clip(combined_cdf, 0.0, 1.0)
+    # Handle bounds explicitly
+    combined_cdf[0] = 0.0 if not open_lower_bound else 0.001
+    combined_cdf[-1] = 1.0 if not open_upper_bound else 0.999
     
-    return combined_cdf.tolist()
+    # Final validation
+    combined_cdf = np.clip(combined_cdf, 0, 1)
+    
+    return np.array(combined_cdf).tolist()
 
 def calculate_final_prediction(results, question_details):
     """Calculate final prediction based on question type"""
