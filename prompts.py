@@ -106,11 +106,16 @@ You remind yourself that good forecasters are humble and set wide 90/10 confiden
 
 The last thing you write is your final answer as:
 "
+Percentile 5: XX
 Percentile 10: XX
 Percentile 20: XX
 Percentile 40: XX
+Percentile 45: XX
+Percentile 50: XX
+Percentile 55: XX
 Percentile 60: XX
 Percentile 80: XX
 Percentile 90: XX
+Percentile 95: XX
 "
 """

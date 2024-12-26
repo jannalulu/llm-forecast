@@ -40,7 +40,7 @@ ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api"
-TOURNAMENT_ID = 32506
+# TOURNAMENT_ID = 32506
 
 # List questions and details
 
@@ -148,7 +148,7 @@ def log_question_news(post_id, news, question_title):
     update_json_log(json_filename, news_data, post_id)
 
 # Get questions from Metaculus
-def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
+def list_questions(offset=0, count=None): #tournament_id=TOURNAMENT_ID,
     """
     List open questions from the {tournament_id}
     """
@@ -162,7 +162,7 @@ def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
             "multiple_choice",
             "numeric",
         ]),
-        "tournaments": [tournament_id],
+        # "tournaments": [tournament_id],
         "statuses": "open",
         "include_description": "true",
     }
@@ -927,95 +927,60 @@ def generate_x_values(question_details):
 
 def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound, open_lower_bound):
     """
-    Combine two CDFs using a more robust method that preserves the distribution shape.
+    Correctly combine two CDFs by averaging probabilities at each x value.
     
     Args:
-        cdf1: First CDF array (from GPT-4)
-        cdf2: Second CDF array (from Claude)
-        x_values: The actual x-axis values these CDFs correspond to
-        open_upper_bound: Whether the upper bound is open
-        open_lower_bound: Whether the lower bound is open
+        cdf1: First CDF array (list of 201 probability values between 0-1)
+        cdf2: Second CDF array (list of 201 probability values between 0-1)
+        x_values: Array of x-axis values these CDFs correspond to
+        open_upper_bound: Boolean indicating if upper bound is open
+        open_lower_bound: Boolean indicating if lower bound is open
         
     Returns:
-        combined_cdf: Array of 201 points representing the combined CDF
+        combined_cdf: Array of 201 probability values representing the combined CDF
     """
     import numpy as np
-    from scipy.interpolate import PchipInterpolator
     
-    # Get percentiles from both CDFs
-    percentiles = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    # Verify inputs are valid
+    assert len(cdf1) == len(cdf2) == 201, "CDFs must have exactly 201 points"
+    assert all(0 <= p <= 1 for p in cdf1), "CDF1 values must be between 0 and 1"
+    assert all(0 <= p <= 1 for p in cdf2), "CDF2 values must be between 0 and 1"
     
-    def get_value_at_percentile(cdf, x_vals, percentile):
-        """Extract value at a given percentile from CDF"""
-        target = percentile / 100.0
-        # Find the first index where CDF exceeds target
-        idx = np.searchsorted(cdf, target)
-        if idx == 0:
-            return x_vals[0]
-        if idx == len(cdf):
-            return x_vals[-1]
-        # Interpolate between points
-        x1, x2 = x_vals[idx-1], x_vals[idx]
-        y1, y2 = cdf[idx-1], cdf[idx]
-        return x1 + (x2 - x1) * (target - y1) / (y2 - y1)
+    # Convert to numpy arrays and clip values to [0,1] range
+    cdf1 = np.clip(np.array(cdf1), 0, 1)
+    cdf2 = np.clip(np.array(cdf2), 0, 1)
     
-    # Get values at percentiles for both CDFs
-    values1 = [get_value_at_percentile(cdf1, x_values, p) for p in percentiles]
-    values2 = [get_value_at_percentile(cdf2, x_values, p) for p in percentiles]
+    # Add error logging
+    if not all(0 <= p <= 1 for p in cdf1):
+        logging.warning(f"CDF1 had values outside [0,1] range before clipping")
+    if not all(0 <= p <= 1 for p in cdf2):
+        logging.warning(f"CDF2 had values outside [0,1] range before clipping")
     
-    # Average the values at each percentile
-    combined_values = [(v1 + v2) / 2 for v1, v2 in zip(values1, values2)]
+    # Average the probabilities at each x value and ensure they stay in [0,1]
+    combined_cdf = np.clip((cdf1 + cdf2) / 2, 0, 1)
     
-    # Create points for interpolation
-    points = []
-    
-    # Handle lower bound
+    # Handle bounds according to question specifications
     if not open_lower_bound:
-        points.append((x_values[0], 0.0))
+        combined_cdf[0] = 0.0
     else:
-        points.append((x_values[0], 0.001))
-    
-    # Add percentile points
-    for p, v in zip(percentiles[1:-1], combined_values[1:-1]):
-        points.append((v, p / 100.0))
-    
-    # Handle upper bound
+        combined_cdf[0] = 0.001  # Small non-zero probability for open bound
+        
     if not open_upper_bound:
-        points.append((x_values[-1], 1.0))
+        combined_cdf[-1] = 1.0
     else:
-        points.append((x_values[-1], 0.998))
-    
-    # Sort points and ensure strict monotonicity
-    points.sort(key=lambda p: p[0])
-    for i in range(1, len(points)):
-        if points[i][0] <= points[i-1][0]:
-            points[i] = (points[i-1][0] + 1e-10, points[i][1])
-    
-    # Create interpolator
-    x_points = [p[0] for p in points]
-    y_points = [p[1] for p in points]
-    
-    if len(points) >= 4:
-        interpolator = PchipInterpolator(x_points, y_points)
-        combined_cdf = interpolator(x_values)
-    else:
-        # Fall back to linear interpolation if too few points
-        combined_cdf = np.interp(x_values, x_points, y_points)
+        combined_cdf[-1] = 0.999  # Just below 1 for open bound
     
     # Ensure monotonicity and proper spacing
-    combined_cdf = np.clip(combined_cdf, 0.0, 1.0)
     for i in range(1, len(combined_cdf)):
         if i == len(combined_cdf) - 1 and not open_upper_bound:
             combined_cdf[i] = 1.0
         else:
+            # Each point should be at least slightly larger than the previous
             combined_cdf[i] = max(combined_cdf[i], combined_cdf[i-1] + 0.00005)
     
-    # Final validation of bounds
-    if not open_lower_bound:
-        combined_cdf[0] = 0.0
-    if not open_upper_bound:
-        combined_cdf[-1] = 1.0
-        
+    # Final validation
+    combined_cdf = np.clip(combined_cdf, 0.0, 1.0)
+    
     return combined_cdf.tolist()
 
 def calculate_final_prediction(results, question_details):
@@ -1069,7 +1034,8 @@ SUBMIT_PREDICTION = True
 #Submitting a forecast
 def main():
     """Main function to process questions and submit forecasts."""
-    posts = list_questions()
+    # posts = list_questions()
+    posts = {"results": [get_question_details(28845)]}
     
     # Create mapping of post IDs to questions
     post_dict = {}
