@@ -40,7 +40,7 @@ ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api"
-# TOURNAMENT_ID = 32506
+TOURNAMENT_ID = 32506
 
 # List questions and details
 
@@ -148,7 +148,7 @@ def log_question_news(post_id, news, question_title):
     update_json_log(json_filename, news_data, post_id)
 
 # Get questions from Metaculus
-def list_questions(offset=0, count=None): #tournament_id=TOURNAMENT_ID,
+def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
     """
     List open questions from the {tournament_id}
     """
@@ -1065,8 +1065,8 @@ SUBMIT_PREDICTION = True
 #Submitting a forecast
 def main():
     """Main function to process questions and submit forecasts."""
-    # posts = list_questions()
-    posts = {"results": [get_question_details(28845)]}
+    posts = list_questions()
+    # posts = {"results": [get_question_details(28845)]}
     
     # Create mapping of post IDs to questions
     post_dict = {}
