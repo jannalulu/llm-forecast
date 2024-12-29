@@ -20,11 +20,11 @@ load_dotenv()
 log_filename = f"annabot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("logs/annabot_newsonnet.log", mode='a', encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ]
+        logging.FileHandler("logs/annabot_newsonnet.log", mode="a", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 
 args = sys.argv
@@ -32,11 +32,11 @@ if len(args) > 1 and args[1] == "dryrun":
     print("dry run, doing nothing")
     exit(0)
 
-METACULUS_TOKEN = os.environ.get('METACULUS_TOKEN')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-ASKNEWS_CLIENT_ID = os.environ.get('ASKNEWS_CLIENT_ID')
-ASKNEWS_SECRET = os.environ.get('ASKNEWS_SECRET')
-ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+METACULUS_TOKEN = os.environ.get("METACULUS_TOKEN")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+ASKNEWS_CLIENT_ID = os.environ.get("ASKNEWS_CLIENT_ID")
+ASKNEWS_SECRET = os.environ.get("ASKNEWS_SECRET")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api"
@@ -44,16 +44,18 @@ TOURNAMENT_ID = 32506
 
 # List questions and details
 
+
 def setup_question_logger(post_id, log_type):
     """Set up a logger for a specific question and log type."""
     log_filename = f"logs/{post_id}_{log_type}.log"
     logger = logging.getLogger(f"{post_id}_{log_type}")
     logger.setLevel(logging.INFO)
-    file_handler = logging.FileHandler(log_filename, mode='a', encoding='utf-8')
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler = logging.FileHandler(log_filename, mode="a", encoding="utf-8")
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     return logger
+
 
 def update_json_log(filename, data, post_id):
     """
@@ -63,26 +65,29 @@ def update_json_log(filename, data, post_id):
     try:
         # Read existing data if file exists
         if os.path.exists(filename):
-            with open(filename, 'r', encoding='utf-8') as json_file:
+            with open(filename, "r", encoding="utf-8") as json_file:
                 existing_data = json.load(json_file)
         else:
             existing_data = []
 
         # Update existing entry or add new one
-        existing_entry = next((item for item in existing_data if item["question_id"] == post_id), None)
+        existing_entry = next(
+            (item for item in existing_data if item["question_id"] == post_id), None
+        )
         if existing_entry:
             existing_entry.update(data)
         else:
             existing_data.append(data)
 
         # Write updated data
-        with open(filename, 'w', encoding='utf-8') as json_file:
+        with open(filename, "w", encoding="utf-8") as json_file:
             json.dump(existing_data, json_file, ensure_ascii=False, indent=2)
         return True
 
     except Exception as e:
         logging.error(f"Error writing to {filename}: {str(e)}")
         return False
+
 
 def log_question_reasoning(post_id, reasoning, question_title, model_name, run_number):
     """Log the reasoning for a specific question and run."""
@@ -92,20 +97,29 @@ def log_question_reasoning(post_id, reasoning, question_title, model_name, run_n
     logger.info(f"Reasoning for question {post_id}:\n{reasoning}")
 
     # JSON logging
-    today = datetime.datetime.now().strftime('%Y%m%d')
+    today = datetime.datetime.now().strftime("%Y%m%d")
     json_filename = f"logs/reasoning_{today}.json"
 
     question_data = {
         "question_id": post_id,
         "question_title": question_title,
-        f"{model_name}_reasoning{run_number}": reasoning
+        f"{model_name}_reasoning{run_number}": reasoning,
     }
 
     update_json_log(json_filename, question_data, post_id)
 
-def log_predictions_json(post_id, question_title, gpt_results, claude_results, gpt_texts, claude_texts, average_probability):
+
+def log_predictions_json(
+    post_id,
+    question_title,
+    gpt_results,
+    claude_results,
+    gpt_texts,
+    claude_texts,
+    average_probability,
+):
     """Log predictions and reasoning to a JSON file."""
-    today = datetime.datetime.now().strftime('%Y%m%d')
+    today = datetime.datetime.now().strftime("%Y%m%d")
     json_filename = f"logs/reasoning_{today}.json"
 
     prediction_data = {
@@ -113,21 +127,26 @@ def log_predictions_json(post_id, question_title, gpt_results, claude_results, g
         "question_title": question_title,
         "timestamp": datetime.datetime.now().isoformat(),
         "runs": [],
-        "average_probability": average_probability
+        "average_probability": average_probability,
     }
 
     for i in range(len(gpt_results)):
-        prediction_data["runs"].append({
-            "run_number": i + 1,
-            "gpt_prediction": gpt_results[i],
-            "gpt_reasoning": gpt_texts[i],
-            "claude_prediction": claude_results[i],
-            "claude_reasoning": claude_texts[i]
-        })
+        prediction_data["runs"].append(
+            {
+                "run_number": i + 1,
+                "gpt_prediction": gpt_results[i],
+                "gpt_reasoning": gpt_texts[i],
+                "claude_prediction": claude_results[i],
+                "claude_reasoning": claude_texts[i],
+            }
+        )
 
     success = update_json_log(json_filename, prediction_data, post_id)
     if success:
-        logging.info(f"Successfully logged predictions for question {post_id} to {json_filename}")
+        logging.info(
+            f"Successfully logged predictions for question {post_id} to {json_filename}"
+        )
+
 
 def log_question_news(post_id, news, question_title):
     """Log the news articles for a specific question."""
@@ -137,15 +156,12 @@ def log_question_news(post_id, news, question_title):
     logger.info(f"News articles for question {post_id}:\n{news}")
 
     # JSON logging
-    today = datetime.datetime.now().strftime('%Y%m%d')
+    today = datetime.datetime.now().strftime("%Y%m%d")
     json_filename = f"logs/news_{today}.json"
 
-    news_data = {
-        "question_id": post_id,
-        "question_title": question_title,
-        "news": news
-    }
+    news_data = {"question_id": post_id, "question_title": question_title, "news": news}
     update_json_log(json_filename, news_data, post_id)
+
 
 # Get questions from Metaculus
 def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
@@ -157,11 +173,13 @@ def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
         "offset": offset,
         "has_group": "false",
         "order_by": "-activity",
-        "forecast_type": ",".join([
-            "binary",
-            "multiple_choice",
-            "numeric",
-        ]),
+        "forecast_type": ",".join(
+            [
+                "binary",
+                "multiple_choice",
+                "numeric",
+            ]
+        ),
         # "tournaments": [tournament_id],
         "statuses": "open",
         "include_description": "true",
@@ -174,6 +192,7 @@ def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
     data = json.loads(response.content)
     return data
 
+
 def asknews_api_call_with_retry(func, *args, **kwargs):
     max_retries = 5
     base_delay = 1
@@ -183,20 +202,23 @@ def asknews_api_call_with_retry(func, *args, **kwargs):
         except APIError as e:
             if e.error_code == 500000:
                 if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logging.warning(f"AskNews API Internal Server Error. Retrying in {delay} seconds...")
+                    delay = base_delay * (2**attempt)
+                    logging.warning(
+                        f"AskNews API Internal Server Error. Retrying in {delay} seconds..."
+                    )
                     time.sleep(delay)
                 else:
-                    logging.error("AskNews API Internal Server Error persisted after max retries.")
+                    logging.error(
+                        "AskNews API Internal Server Error persisted after max retries."
+                    )
                     raise
             else:
                 raise
 
+
 def get_formatted_asknews_context(query):
     ask = AskNewsSDK(
-        client_id=ASKNEWS_CLIENT_ID,
-        client_secret=ASKNEWS_SECRET,
-        scopes=["news"]
+        client_id=ASKNEWS_CLIENT_ID, client_secret=ASKNEWS_SECRET, scopes=["news"]
     )
 
     try:
@@ -207,7 +229,7 @@ def get_formatted_asknews_context(query):
             n_articles=5,  # control the number of articles to include in the context
             return_type="both",
             premium=True,
-            strategy="latest news"  # enforces looking at the latest news only
+            strategy="latest news",  # enforces looking at the latest news only
         )
 
         # get context from the "historical" database that contains a news archive going back to 2023
@@ -216,76 +238,74 @@ def get_formatted_asknews_context(query):
             query=query,
             n_articles=25,
             return_type="both",
-            strategy="news knowledge"  # looks for relevant news within the past 60 days
+            strategy="news knowledge",  # looks for relevant news within the past 60 days
         )
 
         formatted_articles = format_asknews_context(
-            hot_response.as_dicts, historical_response.as_dicts)
+            hot_response.as_dicts, historical_response.as_dicts
+        )
     except APIError as e:
         logging.error(f"AskNews API error: {e}")
         formatted_articles = "Error fetching news articles. Please try again later."
 
     return formatted_articles
 
+
 def format_asknews_context(hot_articles, historical_articles):
-  formatted_articles = "Here are the relevant news articles:\n\n"
+    formatted_articles = "Here are the relevant news articles:\n\n"
 
-  if hot_articles:
-    hot_articles = [article.__dict__ for article in hot_articles]
-    hot_articles = sorted(
-        hot_articles, key=lambda x: x['pub_date'], reverse=True)
+    if hot_articles:
+        hot_articles = [article.__dict__ for article in hot_articles]
+        hot_articles = sorted(hot_articles, key=lambda x: x["pub_date"], reverse=True)
 
-    for article in hot_articles:
-        pub_date = article["pub_date"].strftime("%B %d, %Y %I:%M %p")
-        formatted_articles += f"**{article['eng_title']}**\n{article['summary']}\nOriginal language: {article['language']}\nPublish date: {pub_date}\nSource:[{article['source_id']}]({article['article_url']})\n\n"
+        for article in hot_articles:
+            pub_date = article["pub_date"].strftime("%B %d, %Y %I:%M %p")
+            formatted_articles += f"**{article['eng_title']}**\n{article['summary']}\nOriginal language: {article['language']}\nPublish date: {pub_date}\nSource:[{article['source_id']}]({article['article_url']})\n\n"
 
-  if historical_articles:
-    historical_articles = [article.__dict__ for article in historical_articles]
-    historical_articles = sorted(
-        historical_articles, key=lambda x: x['pub_date'], reverse=True)
+    if historical_articles:
+        historical_articles = [article.__dict__ for article in historical_articles]
+        historical_articles = sorted(
+            historical_articles, key=lambda x: x["pub_date"], reverse=True
+        )
 
-    for article in historical_articles:
-        pub_date = article["pub_date"].strftime("%B %d, %Y %I:%M %p")
-        formatted_articles += f"**{article['eng_title']}**\n{article['summary']}\nOriginal language: {article['language']}\nPublish date: {pub_date}\nSource:[{article['source_id']}]({article['article_url']})\n\n"
+        for article in historical_articles:
+            pub_date = article["pub_date"].strftime("%B %d, %Y %I:%M %p")
+            formatted_articles += f"**{article['eng_title']}**\n{article['summary']}\nOriginal language: {article['language']}\nPublish date: {pub_date}\nSource:[{article['source_id']}]({article['article_url']})\n\n"
 
-  if not hot_articles and not historical_articles:
-    formatted_articles += "No articles were found.\n\n"
+    if not hot_articles and not historical_articles:
+        formatted_articles += "No articles were found.\n\n"
+        return formatted_articles
+
+    formatted_articles += f"*Generated by AI at [AskNews](https://asknews.app), check out the [API](https://docs.asknews.app) for more information*."
+    logging.info(f"News articles:\n{formatted_articles}")
     return formatted_articles
 
-  formatted_articles += f"*Generated by AI at [AskNews](https://asknews.app), check out the [API](https://docs.asknews.app) for more information*."
-  logging.info(f"News articles:\n{formatted_articles}")
-  return formatted_articles
 
-
-#GPT-4 predictions
+# GPT-4 predictions
 def get_binary_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
 
     prompt_input = {
         "title": question_details["question"]["title"],
         "background": question_details["question"]["description"],
-        "resolution_criteria": question_details["question"].get("resolution_criteria", ""),
+        "resolution_criteria": question_details["question"].get(
+            "resolution_criteria", ""
+        ),
         "fine_print": question_details["question"].get("fine_print", ""),
         "formatted_articles": formatted_articles,
-        "today": today
+        "today": today,
     }
-
 
     url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
 
     headers = {
         "Authorization": f"Token {METACULUS_TOKEN}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     data = {
         "model": "gpt-4o",
-        "messages": [
-            {
-                "role": "user",
-                "content": BINARY_PROMPT.format(**prompt_input)
-            }
-        ]
+        "messages": [{"role": "user", "content": BINARY_PROMPT.format(**prompt_input)}],
     }
 
     max_retries = 10
@@ -296,16 +316,21 @@ def get_binary_gpt_prediction(question_details, formatted_articles):
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status()
             response_data = response.json()
-            gpt_text = response_data['choices'][0]['message']['content']
+            gpt_text = response_data["choices"][0]["message"]["content"]
             return gpt_text
         except requests.RequestException as e:
             if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                logging.warning(f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                delay = base_delay * (2**attempt)
+                logging.warning(
+                    f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}"
+                )
                 time.sleep(delay)
             else:
-                logging.error(f"OpenAI API error persisted after {max_retries} retries: {e}")
+                logging.error(
+                    f"OpenAI API error persisted after {max_retries} retries: {e}"
+                )
                 return None
+
 
 def get_binary_claude_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -313,10 +338,12 @@ def get_binary_claude_prediction(question_details, formatted_articles):
     prompt_input = {
         "title": question_details["question"]["title"],
         "background": question_details["question"]["description"],
-        "resolution_criteria": question_details["question"].get("resolution_criteria", ""),
+        "resolution_criteria": question_details["question"].get(
+            "resolution_criteria", ""
+        ),
         "fine_print": question_details["question"].get("fine_print", ""),
         "formatted_articles": formatted_articles,
-        "today": today
+        "today": today,
     }
 
     url = "https://www.metaculus.com/proxy/anthropic/v1/messages/"
@@ -324,18 +351,13 @@ def get_binary_claude_prediction(question_details, formatted_articles):
     headers = {
         "Authorization": f"Token {METACULUS_TOKEN}",
         "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     data = {
         "model": "claude-3-5-sonnet-20241022",
         "max_tokens": 4096,
-        "messages": [
-            {
-                "role": "user",
-                "content": BINARY_PROMPT.format(**prompt_input)
-            }
-        ]
+        "messages": [{"role": "user", "content": BINARY_PROMPT.format(**prompt_input)}],
     }
 
     max_retries = 10
@@ -347,24 +369,30 @@ def get_binary_claude_prediction(question_details, formatted_articles):
             response.raise_for_status()
 
             response_data = response.json()
-            claude_text = response_data['content'][0]['text']
+            claude_text = response_data["content"][0]["text"]
             return claude_text
         except requests.RequestException as e:
             if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                logging.warning(f"Anthropic API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                delay = base_delay * (2**attempt)
+                logging.warning(
+                    f"Anthropic API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}"
+                )
                 time.sleep(delay)
             else:
-                logging.error(f"Anthropic API error persisted after {max_retries} retries: {e}")
+                logging.error(
+                    f"Anthropic API error persisted after {max_retries} retries: {e}"
+                )
                 return None
+
 
 # Find all numbers followed by a '%'
 def find_number_before_percent(s):
-    matches = re.findall(r'(\d+(?:\.\d{1,2})?)%', s)
+    matches = re.findall(r"(\d+(?:\.\d{1,2})?)%", s)
     if matches:
         return float(matches[-1])
     else:
         return None
+
 
 def extract_probability(ai_text):
     probability_match = find_number_before_percent(ai_text)
@@ -372,43 +400,51 @@ def extract_probability(ai_text):
     # Extract the number if a match is found
     probability = None
     if probability_match:
-        probability = float(probability_match) # int(match.group(1))
+        probability = float(probability_match)  # int(match.group(1))
         logging.info(f"The extracted probability is: {probability}%")
-        probability = min(max(probability, 1), 99) # To prevent extreme forecasts
+        probability = min(max(probability, 1), 99)  # To prevent extreme forecasts
         return probability
     else:
         print("Unable to extract probability.")
         return None
+
 
 def get_numeric_claude_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     prompt_input = {
         "title": question_details["question"]["title"],
         "background": question_details["question"]["description"],
-        "resolution_criteria": question_details["question"].get("resolution_criteria", ""),
+        "resolution_criteria": question_details["question"].get(
+            "resolution_criteria", ""
+        ),
         "fine_print": question_details["question"].get("fine_print", ""),
         "formatted_articles": formatted_articles,
         "today": today,
-        "lower_bound_message": f"The outcome can not be lower than {question_details['question']['scaling']['range_min']}." if not question_details["question"]["open_lower_bound"] else "",
-        "upper_bound_message": f"The outcome can not be higher than {question_details['question']['scaling']['range_max']}." if not question_details["question"]["open_upper_bound"] else ""
+        "lower_bound_message": (
+            f"The outcome can not be lower than {question_details['question']['scaling']['range_min']}."
+            if not question_details["question"]["open_lower_bound"]
+            else ""
+        ),
+        "upper_bound_message": (
+            f"The outcome can not be higher than {question_details['question']['scaling']['range_max']}."
+            if not question_details["question"]["open_upper_bound"]
+            else ""
+        ),
     }
 
     url = "https://www.metaculus.com/proxy/anthropic/v1/messages/"
     headers = {
         "Authorization": f"Token {METACULUS_TOKEN}",
         "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     data = {
         "model": "claude-3-5-sonnet-20241022",
         "max_tokens": 4096,
         "messages": [
-            {
-                "role": "user",
-                "content": NUMERIC_PROMPT.format(**prompt_input)
-            }
-        ]
+            {"role": "user", "content": NUMERIC_PROMPT.format(**prompt_input)}
+        ],
     }
 
     max_retries = 10
@@ -419,7 +455,7 @@ def get_numeric_claude_prediction(question_details, formatted_articles):
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status()
             response_data = response.json()
-            claude_text = response_data['content'][0]['text']
+            claude_text = response_data["content"][0]["text"]
 
             percentile_values = extract_percentiles_from_response(claude_text)
             cdf = generate_continuous_cdf(
@@ -427,7 +463,7 @@ def get_numeric_claude_prediction(question_details, formatted_articles):
                 question_details["question"]["type"],
                 question_details["question"]["open_upper_bound"],
                 question_details["question"]["open_lower_bound"],
-                question_details["question"]["scaling"]
+                question_details["question"]["scaling"],
             )
 
             comment = f"Extracted Percentile_values: {percentile_values}\n\nClaude's Answer: {claude_text}\n\n"
@@ -435,41 +471,45 @@ def get_numeric_claude_prediction(question_details, formatted_articles):
 
         except requests.RequestException as e:
             if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                logging.warning(f"Anthropic API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                delay = base_delay * (2**attempt)
+                logging.warning(
+                    f"Anthropic API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}"
+                )
                 time.sleep(delay)
             else:
-                logging.error(f"Anthropic API error persisted after {max_retries} retries: {e}")
+                logging.error(
+                    f"Anthropic API error persisted after {max_retries} retries: {e}"
+                )
                 return None, None
+
 
 def get_multiple_choice_claude_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     prompt_input = {
         "title": question_details["question"]["title"],
         "background": question_details["question"]["description"],
-        "resolution_criteria": question_details["question"].get("resolution_criteria", ""),
+        "resolution_criteria": question_details["question"].get(
+            "resolution_criteria", ""
+        ),
         "fine_print": question_details["question"].get("fine_print", ""),
         "formatted_articles": formatted_articles,
         "today": today,
-        "options": question_details["question"]["options"]
+        "options": question_details["question"]["options"],
     }
 
     url = "https://www.metaculus.com/proxy/anthropic/v1/messages/"
     headers = {
         "Authorization": f"Token {METACULUS_TOKEN}",
         "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     data = {
         "model": "claude-3-5-sonnet-20241022",
         "max_tokens": 4096,
         "messages": [
-            {
-                "role": "user",
-                "content": MULTIPLE_CHOICE_PROMPT.format(**prompt_input)
-            }
-        ]
+            {"role": "user", "content": MULTIPLE_CHOICE_PROMPT.format(**prompt_input)}
+        ],
     }
 
     max_retries = 10
@@ -480,9 +520,11 @@ def get_multiple_choice_claude_prediction(question_details, formatted_articles):
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status()
             response_data = response.json()
-            claude_text = response_data['content'][0]['text']
+            claude_text = response_data["content"][0]["text"]
 
-            option_probabilities = extract_option_probabilities_from_response(claude_text, question_details["question"]["options"])
+            option_probabilities = extract_option_probabilities_from_response(
+                claude_text, question_details["question"]["options"]
+            )
             total_sum = sum(option_probabilities)
             decimal_list = [x / total_sum for x in option_probabilities]
             normalized_probabilities = normalize_list(decimal_list)
@@ -496,12 +538,17 @@ def get_multiple_choice_claude_prediction(question_details, formatted_articles):
 
         except requests.RequestException as e:
             if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                logging.warning(f"Anthropic API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                delay = base_delay * (2**attempt)
+                logging.warning(
+                    f"Anthropic API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}"
+                )
                 time.sleep(delay)
             else:
-                logging.error(f"Anthropic API error persisted after {max_retries} retries: {e}")
+                logging.error(
+                    f"Anthropic API error persisted after {max_retries} retries: {e}"
+                )
                 return None, None
+
 
 def normalize_list(float_list):
     clamped_list = [max(min(x, 0.99), 0.01) for x in float_list]
@@ -511,33 +558,41 @@ def normalize_list(float_list):
     normalized_list[-1] += adjustment
     return normalized_list
 
+
 def get_numeric_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     prompt_input = {
         "title": question_details["question"]["title"],
         "background": question_details["question"]["description"],
-        "resolution_criteria": question_details["question"].get("resolution_criteria", ""),
+        "resolution_criteria": question_details["question"].get(
+            "resolution_criteria", ""
+        ),
         "fine_print": question_details["question"].get("fine_print", ""),
         "formatted_articles": formatted_articles,
         "today": today,
-        "lower_bound_message": f"The outcome can not be lower than {question_details['question']['scaling']['range_min']}." if not question_details["question"]["open_lower_bound"] else "",
-        "upper_bound_message": f"The outcome can not be higher than {question_details['question']['scaling']['range_max']}." if not question_details["question"]["open_upper_bound"] else ""
+        "lower_bound_message": (
+            f"The outcome can not be lower than {question_details['question']['scaling']['range_min']}."
+            if not question_details["question"]["open_lower_bound"]
+            else ""
+        ),
+        "upper_bound_message": (
+            f"The outcome can not be higher than {question_details['question']['scaling']['range_max']}."
+            if not question_details["question"]["open_upper_bound"]
+            else ""
+        ),
     }
 
     url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
     headers = {
         "Authorization": f"Token {METACULUS_TOKEN}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     data = {
         "model": "gpt-4o",
         "messages": [
-            {
-                "role": "user",
-                "content": NUMERIC_PROMPT.format(**prompt_input)
-            }
-        ]
+            {"role": "user", "content": NUMERIC_PROMPT.format(**prompt_input)}
+        ],
     }
 
     max_retries = 10
@@ -548,7 +603,7 @@ def get_numeric_gpt_prediction(question_details, formatted_articles):
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status()
             response_data = response.json()
-            gpt_text = response_data['choices'][0]['message']['content']
+            gpt_text = response_data["choices"][0]["message"]["content"]
 
             percentile_values = extract_percentiles_from_response(gpt_text)
             cdf = generate_continuous_cdf(
@@ -556,7 +611,7 @@ def get_numeric_gpt_prediction(question_details, formatted_articles):
                 question_details["question"]["type"],
                 question_details["question"]["open_upper_bound"],
                 question_details["question"]["open_lower_bound"],
-                question_details["question"]["scaling"]
+                question_details["question"]["scaling"],
             )
 
             comment = f"Extracted Percentile_values: {percentile_values}\n\nGPT's Answer: {gpt_text}\n\n"
@@ -564,39 +619,43 @@ def get_numeric_gpt_prediction(question_details, formatted_articles):
 
         except requests.RequestException as e:
             if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                logging.warning(f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
+                delay = base_delay * (2**attempt)
+                logging.warning(
+                    f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}"
+                )
                 time.sleep(delay)
             else:
-                logging.error(f"OpenAI API error persisted after {max_retries} retries: {e}")
+                logging.error(
+                    f"OpenAI API error persisted after {max_retries} retries: {e}"
+                )
                 return None, None
+
 
 def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     prompt_input = {
         "title": question_details["question"]["title"],
         "background": question_details["question"]["description"],
-        "resolution_criteria": question_details["question"].get("resolution_criteria", ""),
+        "resolution_criteria": question_details["question"].get(
+            "resolution_criteria", ""
+        ),
         "fine_print": question_details["question"].get("fine_print", ""),
         "formatted_articles": formatted_articles,
         "today": today,
-        "options": question_details["question"]["options"]
+        "options": question_details["question"]["options"],
     }
 
     url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
     headers = {
         "Authorization": f"Token {METACULUS_TOKEN}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     data = {
         "model": "gpt-4o",
         "messages": [
-            {
-                "role": "user",
-                "content": MULTIPLE_CHOICE_PROMPT.format(**prompt_input)
-            }
-        ]
+            {"role": "user", "content": MULTIPLE_CHOICE_PROMPT.format(**prompt_input)}
+        ],
     }
 
     max_retries = 10
@@ -607,9 +666,11 @@ def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status()
             response_data = response.json()
-            gpt_text = response_data['choices'][0]['message']['content']
+            gpt_text = response_data["choices"][0]["message"]["content"]
 
-            option_probabilities = extract_option_probabilities_from_response(gpt_text, question_details["question"]["options"])
+            option_probabilities = extract_option_probabilities_from_response(
+                gpt_text, question_details["question"]["options"]
+            )
             total_sum = sum(option_probabilities)
             decimal_list = [x / total_sum for x in option_probabilities]
             normalized_probabilities = normalize_list(decimal_list)
@@ -623,41 +684,50 @@ def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
 
         except requests.RequestException as e:
             if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                logging.warning(f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
-                logging.error(f"Response content: {e.response.text if hasattr(e, 'response') else 'No response'}")
+                delay = base_delay * (2**attempt)
+                logging.warning(
+                    f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}"
+                )
+                logging.error(
+                    f"Response content: {e.response.text if hasattr(e, 'response') else 'No response'}"
+                )
                 time.sleep(delay)
             else:
-                logging.error(f"OpenAI API error persisted after {max_retries} retries: {e}")
+                logging.error(
+                    f"OpenAI API error persisted after {max_retries} retries: {e}"
+                )
                 return None, None
+
 
 def extract_percentiles_from_response(forecast_text: str) -> float:
 
     # Helper function that returns a list of tuples with numbers for all lines with Percentile
     def extract_percentile_numbers(text):
         # Regular expression pattern
-        pattern = r'^.*(?:P|p)ercentile.*$'
+        pattern = r"^.*(?:P|p)ercentile.*$"
 
         # Number extraction pattern
-        number_pattern = r'-?\d+(?:,\d{3})*(?:\.\d+)?'
+        number_pattern = r"-?\d+(?:,\d{3})*(?:\.\d+)?"
 
         results = []
 
         # Iterate through each line in the text
-        for line in text.split('\n'):
+        for line in text.split("\n"):
             # Check if the line contains "Percentile" or "percentile"
             if re.match(pattern, line):
                 # Extract all numbers from the line
                 numbers = re.findall(number_pattern, line)
-                numbers_no_commas = [num.replace(',', '') for num in numbers]
+                numbers_no_commas = [num.replace(",", "") for num in numbers]
                 # Convert strings to float or int
-                numbers = [float(num) if '.' in num else int(num) for num in numbers_no_commas]
+                numbers = [
+                    float(num) if "." in num else int(num) for num in numbers_no_commas
+                ]
                 # Add the tuple of numbers to results
                 if len(numbers) > 1:
-                  first_number = numbers[0]
-                  last_number = numbers[-1]
-                  tup = [first_number, last_number]
-                  results.append(tuple(tup))
+                    first_number = numbers[0]
+                    last_number = numbers[-1]
+                    tup = [first_number, last_number]
+                    results.append(tuple(tup))
 
         # Convert results to dictionary
         percentile_values = {}
@@ -672,9 +742,8 @@ def extract_percentiles_from_response(forecast_text: str) -> float:
     if len(percentile_values) > 0:
         return percentile_values
     else:
-        raise ValueError(
-            f"Could not extract prediction from response: {forecast_text}"
-        )
+        raise ValueError(f"Could not extract prediction from response: {forecast_text}")
+
 
 def generate_continuous_cdf(
     percentile_values: dict,
@@ -682,10 +751,10 @@ def generate_continuous_cdf(
     open_upper_bound: bool,
     open_lower_bound: bool,
     scaling: dict,
-    use_monotonic_cubic: bool = True
+    use_monotonic_cubic: bool = True,
 ) -> list[float]:
-    range_min = float(scaling['range_min'])
-    range_max = float(scaling['range_max'])
+    range_min = float(scaling["range_min"])
+    range_max = float(scaling["range_max"])
 
     def scale_to_unit(x):
         return (x - range_min) / (range_max - range_min)
@@ -697,7 +766,7 @@ def generate_continuous_cdf(
     if open_lower_bound:
         points.append((0.0, 0.001))  # Small non-zero probability for open bound
     else:
-        points.append((0.0, 0.0))    # Exactly zero probability for closed bound
+        points.append((0.0, 0.0))  # Exactly zero probability for closed bound
 
     # Sort and deduplicate the percentile values
     sorted_percentiles = []
@@ -731,8 +800,8 @@ def generate_continuous_cdf(
 
     # Verify strict monotonicity
     for i in range(1, len(points)):
-        if points[i][0] <= points[i-1][0]:
-            points[i] = (points[i-1][0] + 1e-10, points[i][1])
+        if points[i][0] <= points[i - 1][0]:
+            points[i] = (points[i - 1][0] + 1e-10, points[i][1])
 
     x_points = [p[0] for p in points]
     y_points = [p[1] for p in points]
@@ -757,28 +826,32 @@ def generate_continuous_cdf(
     # Special handling to ensure proper spacing while respecting bounds
     for i in range(1, len(cdf_values)):
         if i == len(cdf_values) - 1 and not open_upper_bound:
-            cdf_values[i] = 1.0  # Ensure last point is exactly 1.0 for closed upper bound
+            cdf_values[i] = (
+                1.0  # Ensure last point is exactly 1.0 for closed upper bound
+            )
         else:
-            cdf_values[i] = max(cdf_values[i], cdf_values[i-1] + 0.00005)
+            cdf_values[i] = max(cdf_values[i], cdf_values[i - 1] + 0.00005)
 
     return cdf_values.tolist()
 
+
 def extract_option_probabilities_from_response(forecast_text, options):
-    number_pattern = r'-?\d+(?:,\d{3})*(?:\.\d+)?'
+    number_pattern = r"-?\d+(?:,\d{3})*(?:\.\d+)?"
     results = []
 
-    for line in forecast_text.split('\n'):
+    for line in forecast_text.split("\n"):
         numbers = re.findall(number_pattern, line)
-        numbers_no_commas = [num.replace(',', '') for num in numbers]
-        numbers = [float(num) if '.' in num else int(num) for num in numbers_no_commas]
+        numbers_no_commas = [num.replace(",", "") for num in numbers]
+        numbers = [float(num) if "." in num else int(num) for num in numbers_no_commas]
         if len(numbers) >= 1:
             last_number = numbers[-1]
             results.append(last_number)
 
     if len(results) > 0:
-        return results[-len(options):]
+        return results[-len(options) :]
     else:
         raise ValueError(f"Could not extract prediction from response: {forecast_text}")
+
 
 def get_summary_from_gpt(all_runs_text):
     max_retries = 10
@@ -788,7 +861,7 @@ def get_summary_from_gpt(all_runs_text):
 
     headers = {
         "Authorization": f"Token {METACULUS_TOKEN}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     data = {
@@ -796,24 +869,29 @@ def get_summary_from_gpt(all_runs_text):
         "messages": [
             {
                 "role": "user",
-                "content": f"Please provide a concise summary of these forecasting runs, focusing on the key points of reasoning and how they led to the probabilities. You must include the probabilities from each run. Here are the runs:\n\n{all_runs_text}"
+                "content": f"Please provide a concise summary of these forecasting runs, focusing on the key points of reasoning and how they led to the probabilities. You must include the probabilities from each run. Here are the runs:\n\n{all_runs_text}",
             }
-        ]
+        ],
     }
     for attempt in range(max_retries):
         try:
             response = requests.post(url, headers=headers, json=data)
             response.raise_for_status()
             response_data = response.json()
-            return response_data['choices'][0]['message']['content']
+            return response_data["choices"][0]["message"]["content"]
         except requests.RequestExceptionq as e:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    logging.warning(f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}")
-                    time.sleep(delay)
-                else:
-                    logging.error(f"OpenAI API error persisted after {max_retries} retries: {e}")
-                    return None
+            if attempt < max_retries - 1:
+                delay = base_delay * (2**attempt)
+                logging.warning(
+                    f"OpenAI API error on attempt {attempt + 1}/{max_retries}. Retrying in {delay} seconds... Error: {e}"
+                )
+                time.sleep(delay)
+            else:
+                logging.error(
+                    f"OpenAI API error persisted after {max_retries} retries: {e}"
+                )
+                return None
+
 
 def post_question_comment(post_id, comment_text):
     """
@@ -831,6 +909,7 @@ def post_question_comment(post_id, comment_text):
         **AUTH_HEADERS,
     )
     response.raise_for_status()
+
 
 def create_forecast_payload(
     forecast: float | dict[str, float] | list[float],
@@ -868,6 +947,7 @@ def create_forecast_payload(
         "continuous_cdf": forecast,
     }
 
+
 def post_question_prediction(question_id: int, forecast_payload: dict) -> None:
     """
     Post a prediction on the question.
@@ -896,6 +976,7 @@ def post_question_prediction(question_id: int, forecast_payload: dict) -> None:
         logging.error(f"Response content: {response.text}")
         raise Exception(response.text)
 
+
 def get_question_details(post_id):
     """
     Get all details about a specific question.
@@ -908,6 +989,7 @@ def get_question_details(post_id):
     )
     response.raise_for_status()
     return json.loads(response.content)
+
 
 def generate_x_values(question_details):
     """Generate x-values based on question scaling"""
@@ -922,8 +1004,12 @@ def generate_x_values(question_details):
     else:
         # Log scale
         deriv_ratio = (range_max - zero_point) / (range_min - zero_point)
-        return [range_min + (range_max - range_min) * (deriv_ratio**x - 1) / (deriv_ratio - 1)
-                for x in np.linspace(0, 1, 201)]
+        return [
+            range_min
+            + (range_max - range_min) * (deriv_ratio**x - 1) / (deriv_ratio - 1)
+            for x in np.linspace(0, 1, 201)
+        ]
+
 
 def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound, open_lower_bound):
     """
@@ -957,8 +1043,8 @@ def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound, open_lower_bound):
             return x_vals[-1]
 
         # Linear interpolation
-        x1, x2 = x_vals[idx-1], x_vals[idx]
-        y1, y2 = cdf[idx-1], cdf[idx]
+        x1, x2 = x_vals[idx - 1], x_vals[idx]
+        y1, y2 = cdf[idx - 1], cdf[idx]
 
         if y2 == y1:
             return x1
@@ -970,7 +1056,7 @@ def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound, open_lower_bound):
     values2 = [get_value_at_percentile(cdf2, x_values, p) for p in percentiles]
 
     # Average the values at each percentile
-    averaged_values = [(v1 + v2)/2 for v1, v2 in zip(values1, values2)]
+    averaged_values = [(v1 + v2) / 2 for v1, v2 in zip(values1, values2)]
 
     def get_cdf_probability(value, x_vals, averaged_vals, percentiles):
         """Convert a value back to a CDF probability."""
@@ -987,8 +1073,8 @@ def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound, open_lower_bound):
             return 1.0 if not open_upper_bound else 0.999
 
         # Linear interpolation using percentiles
-        x1, x2 = averaged_vals[idx-1], averaged_vals[idx]
-        p1, p2 = percentiles[idx-1]/100.0, percentiles[idx]/100.0
+        x1, x2 = averaged_vals[idx - 1], averaged_vals[idx]
+        p1, p2 = percentiles[idx - 1] / 100.0, percentiles[idx] / 100.0
 
         if x2 == x1:
             return p1
@@ -996,14 +1082,16 @@ def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound, open_lower_bound):
         return p1 + (p2 - p1) * (value - x1) / (x2 - x1)
 
     # Convert back to probabilities while respecting bounds
-    combined_cdf = [get_cdf_probability(x, x_values, averaged_values, percentiles) for x in x_values]
+    combined_cdf = [
+        get_cdf_probability(x, x_values, averaged_values, percentiles) for x in x_values
+    ]
 
     # Ensure monotonicity and proper spacing
     for i in range(1, len(combined_cdf)):
         if i == len(combined_cdf) - 1 and not open_upper_bound:
             combined_cdf[i] = 1.0
         else:
-            combined_cdf[i] = max(combined_cdf[i], combined_cdf[i-1] + 0.00005)
+            combined_cdf[i] = max(combined_cdf[i], combined_cdf[i - 1] + 0.00005)
 
     # Handle bounds explicitly
     combined_cdf[0] = 0.0 if not open_lower_bound else 0.001
@@ -1013,6 +1101,7 @@ def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound, open_lower_bound):
     combined_cdf = np.clip(combined_cdf, 0, 1)
 
     return np.array(combined_cdf).tolist()
+
 
 def calculate_final_prediction(results, question_details):
     """Calculate final prediction based on question type"""
@@ -1035,10 +1124,18 @@ def calculate_final_prediction(results, question_details):
         claude_avg_cdf = np.mean(claude_results, axis=0)
 
         # Combine the averaged CDFs
-        final_prediction = combine_cdfs(gpt_avg_cdf, claude_avg_cdf, x_values, question_details["question"]["open_upper_bound"], question_details["question"]["open_lower_bound"])
+        final_prediction = combine_cdfs(
+            gpt_avg_cdf,
+            claude_avg_cdf,
+            x_values,
+            question_details["question"]["open_upper_bound"],
+            question_details["question"]["open_lower_bound"],
+        )
 
         # The API expects exactly 201 points
-        assert len(final_prediction) == 201, f"CDF must have 201 points, got {len(final_prediction)}"
+        assert (
+            len(final_prediction) == 201
+        ), f"CDF must have 201 points, got {len(final_prediction)}"
 
         # Each point should be between 0 and 1
         final_prediction = [min(max(p, 0.0), 1.0) for p in final_prediction]
@@ -1060,9 +1157,11 @@ def calculate_final_prediction(results, question_details):
 
     return None
 
+
 SUBMIT_PREDICTION = True
 
-#Submitting a forecast
+
+# Submitting a forecast
 def main():
     """Main function to process questions and submit forecasts."""
     posts = list_questions()
@@ -1073,7 +1172,9 @@ def main():
     for post in posts["results"]:
         if question := post.get("question"):
             post_dict[post["id"]] = [question]
-            logging.info(f'Post ID: {post["id"]}, Question ID: {post["question"]["id"]}')
+            logging.info(
+                f'Post ID: {post["id"]}, Question ID: {post["question"]["id"]}'
+            )
 
     # Get list of open questions with both post and question IDs
     open_question_id_post_id = []  # [(question_id, post_id)]
@@ -1098,8 +1199,12 @@ def main():
             question_type = question_details["question"]["type"]
 
             # Get news context
-            formatted_articles = get_formatted_asknews_context(question_details["title"])
-            log_question_news(post_id, formatted_articles, question_details["question"]["title"])
+            formatted_articles = get_formatted_asknews_context(
+                question_details["title"]
+            )
+            log_question_news(
+                post_id, formatted_articles, question_details["question"]["title"]
+            )
 
             # Initialize results storage
             gpt_results = []
@@ -1116,8 +1221,12 @@ def main():
 
                 if question_type == "binary":
                     # Binary predictions
-                    gpt_result = get_binary_gpt_prediction(question_details, formatted_articles)
-                    claude_result = get_binary_claude_prediction(question_details, formatted_articles)
+                    gpt_result = get_binary_gpt_prediction(
+                        question_details, formatted_articles
+                    )
+                    claude_result = get_binary_claude_prediction(
+                        question_details, formatted_articles
+                    )
 
                     if gpt_result:
                         gpt_prob = extract_probability(gpt_result)
@@ -1133,8 +1242,12 @@ def main():
 
                 elif question_type == "numeric":
                     # Numeric predictions
-                    gpt_result, gpt_comment = get_numeric_gpt_prediction(question_details, formatted_articles)
-                    claude_result, claude_comment = get_numeric_claude_prediction(question_details, formatted_articles)
+                    gpt_result, gpt_comment = get_numeric_gpt_prediction(
+                        question_details, formatted_articles
+                    )
+                    claude_result, claude_comment = get_numeric_claude_prediction(
+                        question_details, formatted_articles
+                    )
 
                     if gpt_result and claude_result:
                         gpt_results.append(gpt_result)
@@ -1144,8 +1257,14 @@ def main():
 
                 elif question_type == "multiple_choice":
                     # Multiple choice predictions
-                    gpt_result, gpt_comment = get_multiple_choice_gpt_prediction(question_details, formatted_articles)
-                    claude_result, claude_comment = get_multiple_choice_claude_prediction(question_details, formatted_articles)
+                    gpt_result, gpt_comment = get_multiple_choice_gpt_prediction(
+                        question_details, formatted_articles
+                    )
+                    claude_result, claude_comment = (
+                        get_multiple_choice_claude_prediction(
+                            question_details, formatted_articles
+                        )
+                    )
 
                     if gpt_result and claude_result:
                         gpt_results.append(gpt_result)
@@ -1155,9 +1274,21 @@ def main():
 
                 # Log individual model results
                 if gpt_result:
-                    log_question_reasoning(post_id, gpt_texts[-1], question_details["question"]["title"], "gpt", run)
+                    log_question_reasoning(
+                        post_id,
+                        gpt_texts[-1],
+                        question_details["question"]["title"],
+                        "gpt",
+                        run,
+                    )
                 if claude_result:
-                    log_question_reasoning(post_id, claude_texts[-1], question_details["question"]["title"], "claude", run)
+                    log_question_reasoning(
+                        post_id,
+                        claude_texts[-1],
+                        question_details["question"]["title"],
+                        "claude",
+                        run,
+                    )
 
             # Process and submit final prediction if we have results from both models
             if gpt_results and claude_results:
@@ -1165,17 +1296,25 @@ def main():
                 results = {
                     "type": question_type,
                     "gpt_results": gpt_results,
-                    "claude_results": claude_results
+                    "claude_results": claude_results,
                 }
                 final_prediction = calculate_final_prediction(results, question_details)
 
                 if final_prediction:
                     # Create the API payload
                     forecast_payload = create_forecast_payload(
-                        final_prediction["prediction" if question_type == "binary" else
-                                      "prediction_probs" if question_type == "multiple_choice" else
-                                      "continuous_cdf"],
-                        question_type
+                        final_prediction[
+                            (
+                                "prediction"
+                                if question_type == "binary"
+                                else (
+                                    "prediction_probs"
+                                    if question_type == "multiple_choice"
+                                    else "continuous_cdf"
+                                )
+                            )
+                        ],
+                        question_type,
                     )
 
                     # Get prediction summary
@@ -1193,7 +1332,7 @@ def main():
                         claude_results,
                         gpt_texts,
                         claude_texts,
-                        final_prediction
+                        final_prediction,
                     )
 
                     if SUBMIT_PREDICTION:
@@ -1215,15 +1354,24 @@ def main():
                             )
                         else:  # multiple_choice
                             probs = final_prediction["prediction_probs"]
-                            probs_text = "\n".join([f"{option}: {prob*100:.2f}%" for option, prob in probs.items()])
+                            probs_text = "\n".join(
+                                [
+                                    f"{option}: {prob*100:.2f}%"
+                                    for option, prob in probs.items()
+                                ]
+                            )
                             comment = f"Summary of prediction:\n\n{summary}\n\nFinal predictions:\n{probs_text}"
 
                         # Post comment using post_id
                         post_question_comment(post_id, comment)
-                        logging.info(f"Successfully submitted prediction for question {post_id}")
+                        logging.info(
+                            f"Successfully submitted prediction for question {post_id}"
+                        )
 
             else:
-                logging.warning(f"No valid predictions generated for question {post_id}")
+                logging.warning(
+                    f"No valid predictions generated for question {post_id}"
+                )
 
         except Exception as e:
             logging.error(f"Error processing question {post_id}: {str(e)}")
@@ -1231,6 +1379,7 @@ def main():
 
         # Sleep to avoid rate limiting
         time.sleep(2)
+
 
 if __name__ == "__main__":
     main()
