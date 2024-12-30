@@ -180,7 +180,7 @@ def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
                 "numeric",
             ]
         ),
-        # "tournaments": [tournament_id],
+        "tournaments": [tournament_id],
         "statuses": "open",
         "include_description": "true",
     }
