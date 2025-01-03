@@ -102,7 +102,7 @@ Before answering you write:
 (e) A brief description of an unexpected scenario that results in a low outcome.
 (f) A brief description of an unexpected scenario that results in a high outcome.
 
-You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unknowns. The outcomes should neither touch the upper_bound nor the lower_bound.
+You remind yourself that good forecasters are humble and set wide 95/5 confidence intervals to account for unknown unknowns. The outcomes should neither touch the upper_bound nor the lower_bound.
 
 The last thing you write is your final answer as:
 "
