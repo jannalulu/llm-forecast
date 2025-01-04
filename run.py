@@ -41,9 +41,23 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api"
 TOURNAMENT_ID = 32506
+ANTHROPIC_PROXY = {
+    "url": "https://www.metaculus.com/proxy/anthropic/v1/messages/",
+    "headers": {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+}
+OPENAI_PROXY = {
+    "url": "https://www.metaculus.com/proxy/openai/v1/chat/completions/",
+    "headers": {
+        "Authorization": f"Token {METACULUS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+}
 
 # List questions and details
-
 
 def setup_question_logger(post_id, log_type):
     """Set up a logger for a specific question and log type."""
@@ -296,12 +310,8 @@ def get_binary_gpt_prediction(question_details, formatted_articles):
         "today": today,
     }
 
-    url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
-
-    headers = {
-        "Authorization": f"Token {METACULUS_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    url = OPENAI_PROXY["url"]
+    headers = OPENAI_PROXY["headers"]
 
     data = {
         "model": "gpt-4o",
@@ -346,13 +356,8 @@ def get_binary_claude_prediction(question_details, formatted_articles):
         "today": today,
     }
 
-    url = "https://www.metaculus.com/proxy/anthropic/v1/messages/"
-
-    headers = {
-        "Authorization": f"Token {METACULUS_TOKEN}",
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
+    url = ANTHROPIC_PROXY["url"]
+    headers = ANTHROPIC_PROXY["headers"]
 
     data = {
         "model": "claude-3-5-sonnet-20241022",
@@ -432,12 +437,8 @@ def get_numeric_claude_prediction(question_details, formatted_articles):
         ),
     }
 
-    url = "https://www.metaculus.com/proxy/anthropic/v1/messages/"
-    headers = {
-        "Authorization": f"Token {METACULUS_TOKEN}",
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
+    url = ANTHROPIC_PROXY["url"]
+    headers = ANTHROPIC_PROXY["headers"]
 
     data = {
         "model": "claude-3-5-sonnet-20241022",
@@ -497,12 +498,8 @@ def get_multiple_choice_claude_prediction(question_details, formatted_articles):
         "options": question_details["question"]["options"],
     }
 
-    url = "https://www.metaculus.com/proxy/anthropic/v1/messages/"
-    headers = {
-        "Authorization": f"Token {METACULUS_TOKEN}",
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-    }
+    url = ANTHROPIC_PROXY["url"]
+    headers = ANTHROPIC_PROXY["headers"]
 
     data = {
         "model": "claude-3-5-sonnet-20241022",
@@ -582,11 +579,8 @@ def get_numeric_gpt_prediction(question_details, formatted_articles):
         ),
     }
 
-    url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
-    headers = {
-        "Authorization": f"Token {METACULUS_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    url = OPENAI_PROXY["url"]
+    headers = OPENAI_PROXY["headers"]
 
     data = {
         "model": "gpt-4o",
@@ -645,11 +639,8 @@ def get_multiple_choice_gpt_prediction(question_details, formatted_articles):
         "options": question_details["question"]["options"],
     }
 
-    url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
-    headers = {
-        "Authorization": f"Token {METACULUS_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    url = OPENAI_PROXY["url"]
+    headers = OPENAI_PROXY["headers"]
 
     data = {
         "model": "gpt-4o",
@@ -857,12 +848,8 @@ def get_summary_from_gpt(all_runs_text):
     max_retries = 10
     base_delay = 1
 
-    url = "https://www.metaculus.com/proxy/openai/v1/chat/completions/"
-
-    headers = {
-        "Authorization": f"Token {METACULUS_TOKEN}",
-        "Content-Type": "application/json",
-    }
+    url = OPENAI_PROXY["url"]
+    headers = OPENAI_PROXY["headers"]
 
     data = {
         "model": "gpt-4o",
