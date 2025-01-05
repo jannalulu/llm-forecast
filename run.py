@@ -769,7 +769,7 @@ def generate_continuous_cdf(
 
         # Add a small epsilon to x if we've seen this value before
         while x in seen_x_values:
-            x += 1e-10
+            x += 5e-5
 
         seen_x_values.add(x)
         sorted_percentiles.append((x, pct / 100.0))
@@ -781,7 +781,7 @@ def generate_continuous_cdf(
     if open_upper_bound:
         # Ensure the final point is strictly greater than the previous point
         last_x = points[-1][0]
-        points.append((max(last_x + 1e-10, 1.0), 0.998))
+        points.append((max(last_x + 5e-5, 1.0), 0.999))
     else:
         # For closed upper bound, ensure we reach exactly 1.0 probability
         points.append((1.0, 1.0))
@@ -792,7 +792,7 @@ def generate_continuous_cdf(
     # Verify strict monotonicity
     for i in range(1, len(points)):
         if points[i][0] <= points[i - 1][0]:
-            points[i] = (points[i - 1][0] + 1e-10, points[i][1])
+            points[i] = (points[i - 1][0] + 5e-5, points[i][1])
 
     x_points = [p[0] for p in points]
     y_points = [p[1] for p in points]
@@ -808,8 +808,8 @@ def generate_continuous_cdf(
         cdf_values = np.interp(x_eval, x_points, y_points)
 
     # Ensure exact bounds are respected
-    cdf_values[0] = 0.0 if not open_lower_bound else 0.000
-    cdf_values[-1] = 0.999 if not open_upper_bound else 0.999
+    cdf_values[0] = 0.0 if not open_lower_bound else 0.001
+    cdf_values[-1] = 1.0 if not open_upper_bound else 0.999
 
     # Clip and enforce monotonicity and spacing
     cdf_values = np.clip(cdf_values, 0.0, 1.0)
@@ -1003,91 +1003,103 @@ def combine_cdfs(cdf1, cdf2, x_values, open_upper_bound, open_lower_bound):
     Combine two CDFs while respecting bounds constraints.
 
     Args:
-        cdf1, cdf2: Lists of 201 probability values (y-values of the CDF)
-        x_values: Array of corresponding x-axis values
-        open_upper_bound: Boolean indicating if upper bound is open
-        open_lower_bound: Boolean indicating if lower bound is open
+        cdf1, cdf2: Lists of 201 probability values (the CDFs).
+        x_values:   The corresponding x-values (length 201).
+        open_upper_bound:  Boolean; if True, the final CDF must be <= 0.999.
+        open_lower_bound:  Boolean; if True, the initial CDF must be >= 0.001.
+
+    Returns:
+        A new combined CDF (list of 201 floats) that:
+        - Is strictly increasing by at least 5e-05 at each step
+        - Respects open/closed bounds at start (0.0 or 0.001) and end (1.0 or 0.999).
     """
 
-    # Generate percentile points (0 to 100)
+    # Step 1: Convert each CDF -> "x-values at each percentile"
     percentiles = np.linspace(0, 100, 201)
-
-    def get_value_at_percentile(cdf, x_vals, p):
-        """Find the x-value where CDF reaches the given percentile."""
-        target = p / 100.0
-
-        # Handle bounds
-        if target <= 0:
+    
+    def get_value_at_percentile(cdf, x_vals, pct):
+        """Find x-value where cdf ~ pct%."""
+        frac = pct / 100.0
+        if frac <= 0:
             return x_vals[0]
-        if target >= 1:
+        if frac >= 1:
             return x_vals[-1]
-
-        idx = np.searchsorted(cdf, target)
-
+        idx = np.searchsorted(cdf, frac)
         if idx == 0:
             return x_vals[0]
         if idx >= len(cdf):
             return x_vals[-1]
-
-        # Linear interpolation
         x1, x2 = x_vals[idx - 1], x_vals[idx]
         y1, y2 = cdf[idx - 1], cdf[idx]
-
-        if y2 == y1:
+        if abs(y2 - y1) < 1e-12:
             return x1
-
-        return x1 + (x2 - x1) * (target - y1) / (y2 - y1)
-
-    # Get values at each percentile for both CDFs
+        return x1 + (x2 - x1) * (frac - y1) / (y2 - y1)
+    
     values1 = [get_value_at_percentile(cdf1, x_values, p) for p in percentiles]
     values2 = [get_value_at_percentile(cdf2, x_values, p) for p in percentiles]
-
-    # Average the values at each percentile
-    averaged_values = [(v1 + v2) / 2 for v1, v2 in zip(values1, values2)]
-
-    def get_cdf_probability(value, x_vals, averaged_vals, percentiles):
-        """Convert a value back to a CDF probability."""
-        if value <= averaged_vals[0]:
+    avg_vals = [(v1 + v2) / 2 for v1, v2 in zip(values1, values2)]
+    
+    # Step 2: Convert back to a CDF on [0..1] by interpolation
+    def get_probability_from_value(val, avg_xvals, pcts):
+        """Given val in x-axis, find the cdf fraction."""
+        if val <= avg_xvals[0]:
             return 0.0 if not open_lower_bound else 0.001
-        if value >= averaged_vals[-1]:
+        if val >= avg_xvals[-1]:
             return 1.0 if not open_upper_bound else 0.999
-
-        idx = np.searchsorted(averaged_vals, value)
-
+        idx = np.searchsorted(avg_xvals, val)
         if idx == 0:
             return 0.0 if not open_lower_bound else 0.001
-        if idx >= len(averaged_vals):
+        if idx >= len(avg_xvals):
             return 1.0 if not open_upper_bound else 0.999
+        x1, x2 = avg_xvals[idx - 1], avg_xvals[idx]
+        f1, f2 = pcts[idx - 1] / 100.0, pcts[idx] / 100.0
+        if abs(x2 - x1) < 1e-12:
+            return f1
+        return f1 + (f2 - f1) * (val - x1) / (x2 - x1)
+    
+    combined_cdf = [get_probability_from_value(x, avg_vals, percentiles) for x in x_values]
 
-        # Linear interpolation using percentiles
-        x1, x2 = averaged_vals[idx - 1], averaged_vals[idx]
-        p1, p2 = percentiles[idx - 1] / 100.0, percentiles[idx] / 100.0
+    # Step 3: Force the first and last points according to open/closed
+    if open_lower_bound:
+        combined_cdf[0] = max(combined_cdf[0], 0.001)
+    else:
+        combined_cdf[0] = 0.0
+    if open_upper_bound:
+        combined_cdf[-1] = min(combined_cdf[-1], 0.999)
+    else:
+        combined_cdf[-1] = 1.0
 
-        if x2 == x1:
-            return p1
-
-        return p1 + (p2 - p1) * (value - x1) / (x2 - x1)
-
-    # Convert back to probabilities while respecting bounds
-    combined_cdf = [
-        get_cdf_probability(x, x_values, averaged_values, percentiles) for x in x_values
-    ]
-
-    # Ensure monotonicity and proper spacing
+    # Step 4: Enforce strict increments of 5e-05 (left-to-right)
     for i in range(1, len(combined_cdf)):
-        if i == len(combined_cdf) - 1 and not open_upper_bound:
-            combined_cdf[i] = 1.0
-        else:
-            combined_cdf[i] = max(combined_cdf[i], combined_cdf[i - 1] + 0.00005)
+        combined_cdf[i] = max(combined_cdf[i], combined_cdf[i - 1] + 5e-05)
 
-    # Handle bounds explicitly
-    combined_cdf[0] = 0.0 if not open_lower_bound else 0.001
-    combined_cdf[-1] = 1.0 if not open_upper_bound else 0.999
+    # Step 5: Enforce the upper bound again if open
+    if open_upper_bound:
+        combined_cdf[-1] = min(combined_cdf[-1], 0.999)
+    
+    # Step 6: Right-to-left pass to avoid overshoots
+    for i in range(len(combined_cdf) - 2, -1, -1):
+        combined_cdf[i] = min(combined_cdf[i], combined_cdf[i + 1] - 5e-05)
 
-    # Final validation
-    combined_cdf = np.clip(combined_cdf, 0, 1)
+    # Step 7: Final clamp
+    combined_cdf = np.clip(combined_cdf, 0.0, 1.0)
+    
+    # Step 8: Re-assert the very first and last in case the passes shifted them
+    if open_lower_bound:
+        combined_cdf[0] = max(combined_cdf[0], 0.001)
+    else:
+        combined_cdf[0] = 0.0
+    if open_upper_bound:
+        combined_cdf[-1] = min(combined_cdf[-1], 0.999)
+    else:
+        combined_cdf[-1] = 1.0
 
-    return np.array(combined_cdf).tolist()
+    # Step 9: Final pass to fix any new violation
+    for i in range(1, len(combined_cdf)):
+        combined_cdf[i] = max(combined_cdf[i], combined_cdf[i - 1] + 5e-05)
+    combined_cdf = np.clip(combined_cdf, 0.0, 1.0)
+
+    return combined_cdf
 
 
 def calculate_final_prediction(results, question_details):
