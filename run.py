@@ -40,7 +40,7 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 AUTH_HEADERS = {"headers": {"Authorization": f"Token {METACULUS_TOKEN}"}}
 API_BASE_URL = "https://www.metaculus.com/api"
-TOURNAMENT_ID = 32506
+TOURNAMENT_ID = 32627
 ANTHROPIC_PROXY = {
     "url": "https://www.metaculus.com/proxy/anthropic/v1/messages/",
     "headers": {
@@ -1164,7 +1164,7 @@ SUBMIT_PREDICTION = True
 def main():
     """Main function to process questions and submit forecasts."""
     posts = list_questions()
-    # posts = {"results": [get_question_details(28845)]}
+    # posts = {"results": [get_question_details(14333)]}
 
     # Create mapping of post IDs to questions
     post_dict = {}
