@@ -1019,16 +1019,25 @@ def post_question_prediction(question_id: int, forecast_payload: dict) -> None:
 
 def get_question_details(post_id):
     """
-    Get all details about a specific question.
+    Get all details about a specific question and verify no forecast exists.
     """
     url = f"{API_BASE_URL}/posts/{post_id}/"
-    print(url)
-    response = requests.get(
-        url,
-        **AUTH_HEADERS,
-    )
+    
+    response = requests.get(url, **AUTH_HEADERS)
     response.raise_for_status()
-    return json.loads(response.content)
+    details = json.loads(response.content)
+
+    # Check if question exists in response
+    if "question" not in details:
+        return None
+        
+    my_forecasts = details["question"].get("my_forecasts", {})
+    
+    # Check if there's no existing forecast
+    if my_forecasts.get("latest") is None:
+        return details
+    
+    return None
 
 
 def generate_x_values(question_details):
@@ -1248,6 +1257,11 @@ def main():
 
             # Get question details using the post_id
             question_details = get_question_details(post_id)
+
+            if question_details is None:
+                logging.info(f"Skipping question {post_id} - forecast already exists")
+                continue
+            
             question_type = question_details["question"]["type"]
 
             # Get news context
