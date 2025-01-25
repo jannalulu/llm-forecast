@@ -200,6 +200,7 @@ def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
     }
     if count is not None:
         url_qparams["limit"] = count
+
     url = f"{API_BASE_URL}/posts/"
     response = requests.get(url, **AUTH_HEADERS, params=url_qparams)
     response.raise_for_status()
@@ -744,44 +745,69 @@ def generate_continuous_cdf(
     scaling: dict,
     use_monotonic_cubic: bool = True,
 ) -> list[float]:
+    """
+    Generate a strictly monotonic CDF for numeric (and date) questions on Metaculus,
+    respecting open/closed bounds at 0/1 or 0.001/0.999, a minimum step of 1e-5,
+    and a maximum step of 0.59 between consecutive points.
+
+    Args:
+        percentile_values: Dict of {percentile -> raw_value}, e.g. {25: 10.0, 50: 15.0, ...}
+        question_type: Metaculus question type (usually 'numeric' or 'date' for continuous CDF).
+        open_upper_bound: If True, upper bound is open (CDF ~ 0.999); else it is closed (CDF ~ 1.0).
+        open_lower_bound: If True, lower bound is open (CDF ~ 0.001); else it is closed (CDF ~ 0.0).
+        scaling: Dict containing 'range_min' and 'range_max' for linear scaling. e.g. {"range_min": 0, "range_max": 100}.
+        use_monotonic_cubic: Whether to use a PCHIP monotonic spline if sufficient anchor points exist.
+
+    Returns:
+        A list of length 201, representing the continuous CDF in 201 steps from x=0 to x=1,
+        strictly monotonic, respecting step-size constraints, and matching open/closed bounds.
+    """
+
     range_min = float(scaling["range_min"])
     range_max = float(scaling["range_max"])
 
     def scale_to_unit(x):
+        """Scale raw numeric question value x to [0..1]."""
         return (x - range_min) / (range_max - range_min)
 
     # Construct points array with lower and upper bounds
     points = []
 
-    # Handle lower bound based on whether it's open or closed
     if open_lower_bound:
-        points.append((0.0, 0.001))  # Small non-zero probability for open bound
+        # Start at (x=0.0, probability=0.001)
+        points.append((0.0, 0.001))
     else:
-        points.append((0.0, 0.0))  # Exactly zero probability for closed bound
+        # Start at (x=0.0, probability=0.0)
+        points.append((0.0, 0.0))
 
-    # Sort and deduplicate the percentile values
-    sorted_percentiles = []
-    seen_x_values = set()
+    # Convert user’s percentile values to x ∈ [0..1], p ∈ [0..1].
+    # Sort by percentile in ascending order (e.g. 5th -> 50th -> 95th).
+    sorted_percentiles = sorted(percentile_values.items(), key=lambda kv: kv[0])
 
-    for pct, val in sorted(percentile_values.items()):
-        val_clamped = max(min(val, range_max), range_min)
-        x = scale_to_unit(val_clamped)
+    # Keep track of x-values to avoid duplicates
+    seen_x_values = set([points[0][0]])
 
-        # Add a small epsilon to x if we've seen this value before
+    for pct, raw_val in sorted_percentiles:
+        # Clamp the raw value to [range_min, range_max] so we don't go out of range
+        clamped_val = max(min(raw_val, range_max), range_min)
+        x = scale_to_unit(clamped_val)
+        # Convert percentile to fraction in [0..1]
+        p = pct / 100.0
+
         while x in seen_x_values:
-            x += 5e-5
 
         seen_x_values.add(x)
-        sorted_percentiles.append((x, pct / 100.0))
+        points.append((x, p))
 
-    # Add the sorted, deduplicated points
-    points.extend(sorted_percentiles)
-
-    # Handle upper bound based on whether it's open or closed
+    # Upper bound
     if open_upper_bound:
-        # Ensure the final point is strictly greater than the previous point
+        # Add final open-bound at x=1.0 with probability=0.999
+        # but ensure x is strictly greater than last anchor
         last_x = points[-1][0]
-        points.append((max(last_x + 5e-5, 1.0), 0.999))
+        if last_x >= 1.0:
+            # In rare case we have an anchor at 1.0 already
+            last_x = 1.0 - 1e-5
+        points.append((max(last_x + 1e-5, 1.0), 0.999))
     else:
         # For closed upper bound, ensure we reach exactly 1.0 probability
         points.append((1.0, 1.0))
@@ -794,8 +820,8 @@ def generate_continuous_cdf(
         if points[i][0] <= points[i - 1][0]:
             points[i] = (points[i - 1][0] + 5e-5, points[i][1])
 
-    x_points = [p[0] for p in points]
-    y_points = [p[1] for p in points]
+    x_points = [pt[0] for pt in points]
+    y_points = [pt[1] for pt in points]
 
     x_eval = np.linspace(0, 1, 201)
 
@@ -807,24 +833,51 @@ def generate_continuous_cdf(
         # Fall back to linear interpolation
         cdf_values = np.interp(x_eval, x_points, y_points)
 
-    # Ensure exact bounds are respected
-    cdf_values[0] = 0.0 if not open_lower_bound else 0.001
-    cdf_values[-1] = 1.0 if not open_upper_bound else 0.999
+    if open_lower_bound:
+        cdf_values[0] = max(cdf_values[0], 0.001)
+    else:
+        cdf_values[0] = 0.0
 
     # Clip and enforce monotonicity and spacing
+    if open_upper_bound:
+        cdf_values[-1] = min(cdf_values[-1], 0.999)
+    else:
+        cdf_values[-1] = 1.0
+
+    # Clip to [0,1] just in case
     cdf_values = np.clip(cdf_values, 0.0, 1.0)
 
     # Special handling to ensure proper spacing while respecting bounds
+    # Left-to-right pass
     for i in range(1, len(cdf_values)):
-        if i == len(cdf_values) - 1 and not open_upper_bound:
-            cdf_values[i] = (
-                1.0  # Ensure last point is exactly 1.0 for closed upper bound
-            )
-        else:
-            cdf_values[i] = max(cdf_values[i], cdf_values[i - 1] + 0.00005)
+        # Must be >= the previous + 1e-5
+        min_allowed = cdf_values[i - 1] + 1e-5
+        # Must be <= the previous + 0.59
+        max_allowed = cdf_values[i - 1] + 0.59
+        cdf_values[i] = np.clip(cdf_values[i], min_allowed, max_allowed)
+
+    # Right-to-left pass, in case large jumps are forced from the right side
+    for i in range(len(cdf_values) - 2, -1, -1):
+        # cdf_values[i] must be <= cdf_values[i+1] - 1e-5? Actually we want cdf[i] < cdf[i+1], so:
+        max_allowed = cdf_values[i + 1] - 1e-5
+        # cdf_values[i] must be >= cdf_values[i+1] - 0.59
+        min_allowed = cdf_values[i + 1] - 0.59
+        cdf_values[i] = np.clip(cdf_values[i], min_allowed, max_allowed)
+
+    # Final clip for safety
+    cdf_values = np.clip(cdf_values, 0.0, 1.0)
+
+    # Now re-enforce the exact endpoints one last time
+    if open_lower_bound:
+        cdf_values[0] = max(cdf_values[0], 0.001)
+    else:
+        cdf_values[0] = 0.0
+    if open_upper_bound:
+        cdf_values[-1] = min(cdf_values[-1], 0.999)
+    else:
+        cdf_values[-1] = 1.0
 
     return cdf_values.tolist()
-
 
 def extract_option_probabilities_from_response(forecast_text, options):
     number_pattern = r"-?\d+(?:,\d{3})*(?:\.\d+)?"
