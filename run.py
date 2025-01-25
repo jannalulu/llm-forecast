@@ -178,7 +178,7 @@ def log_question_news(post_id, news, question_title):
 
 
 # Get questions from Metaculus
-def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=None):
+def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=100):
     """
     List open questions from the {tournament_id}
     """
