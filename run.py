@@ -191,7 +191,7 @@ def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=100):
             [
                 "binary",
                 "multiple_choice",
-                "numeric",
+                # "numeric",
             ]
         ),
         "tournaments": [tournament_id],
@@ -795,8 +795,7 @@ def generate_continuous_cdf(
         p = pct / 100.0
 
         while x in seen_x_values:
-
-        seen_x_values.add(x)
+            seen_x_values.add(x)
         points.append((x, p))
 
     # Upper bound
@@ -858,7 +857,7 @@ def generate_continuous_cdf(
 
     # Right-to-left pass, in case large jumps are forced from the right side
     for i in range(len(cdf_values) - 2, -1, -1):
-        # cdf_values[i] must be <= cdf_values[i+1] - 1e-5? Actually we want cdf[i] < cdf[i+1], so:
+        # cdf_values[i] must be <= cdf_values[i+1] - 1e-5 Actually we want cdf[i] < cdf[i+1], so:
         max_allowed = cdf_values[i + 1] - 1e-5
         # cdf_values[i] must be >= cdf_values[i+1] - 0.59
         min_allowed = cdf_values[i + 1] - 0.59
