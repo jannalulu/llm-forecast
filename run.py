@@ -191,7 +191,7 @@ def list_questions(tournament_id=TOURNAMENT_ID, offset=0, count=100):
             [
                 "binary",
                 "multiple_choice",
-                # "numeric",
+                "numeric",
             ]
         ),
         "tournaments": [tournament_id],
